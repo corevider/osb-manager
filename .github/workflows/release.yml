@@ -1,0 +1,74 @@
+name: Release (Windows)
+
+# Builds the Windows package for a version tag and attaches it to a draft GitHub release. Releases are otherwise made
+# by hand: the macOS package is signed and notarised on the operator's Mac (docs/macos/RELEASE.md), and the operator
+# adds it to the draft and publishes the release. This workflow never signs anything and holds no signing material.
+#
+# Starts when a maintainer pushes a tag v<major>.<minor>.<patch> whose version equals <Version> in
+# src/OsbManager/OsbManager.csproj. It builds and tests the tagged commit, runs scripts/package-windows.ps1, and creates
+# (or updates) the draft release with OSB-Manager-windows-x64.zip and its .sha256 file.
+#
+# Why this is safe: only people with write access can push tags (protect `v*` tags with a ruleset), the job runs the
+# tagged commit of this repository and no pull request code, it uses no secret besides GITHUB_TOKEN, and it creates a
+# draft that a maintainer checks and publishes by hand.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Check the version
+        shell: bash
+        run: |
+          version=$(sed -n 's#.*<Version>\(.*\)</Version>.*#\1#p' src/OsbManager/OsbManager.csproj | head -n 1)
+          [ "v$version" = "$TAG" ] || { echo "Tag $TAG does not match <Version>$version</Version>."; exit 1; }
+
+      - name: Build and test
+        run: |
+          dotnet build OsbManager.slnx -c Release -warnaserror
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test OsbManager.slnx -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package
+        run: ./scripts/package-windows.ps1 -OutputDirectory "$env:RUNNER_TEMP/dist"
+
+      - name: Create or update the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          dist="$RUNNER_TEMP/dist"
+          ( cd "$dist" && sha256sum -c OSB-Manager-windows-x64.zip.sha256 )
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$dist/OSB-Manager-windows-x64.zip" "$dist/OSB-Manager-windows-x64.zip.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$dist/OSB-Manager-windows-x64.zip" "$dist/OSB-Manager-windows-x64.zip.sha256" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "OSB Manager ${TAG#v}" \
+              --notes "Windows package built by release.yml from $TAG. Add the signed and notarised macOS package (docs/macos/RELEASE.md), write the notes, then publish."
+          fi
+          cat "$dist/OSB-Manager-windows-x64.zip.sha256"

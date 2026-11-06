@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>__IDENTIFIER__</string>
+    <key>CFBundleName</key>
+    <string>OSB Manager</string>
+    <key>CFBundleDisplayName</key>
+    <string>OSB Manager</string>
+    <key>CFBundleExecutable</key>
+    <string>__NAME__</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>__BUILD__</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
+    <key>LSEnvironment</key>
+    <dict>
+        <key>MallocNanoZone</key>
+        <string>0</string>
+    </dict>
+    <key>LSMinimumSystemVersion</key>
+    <string>26.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.games</string>
+    <key>NSPrincipalClass</key>
+    <string>SroCefApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+</dict>
+</plist>

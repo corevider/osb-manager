@@ -1,0 +1,86 @@
+name: Merge approved PR
+
+# Merges a pull request after a maintainer approved it. Claude never merges.
+#
+# Starts when a maintainer (author association OWNER, MEMBER or COLLABORATOR) submits an approving review on a PR from a
+# branch of this repository, or by hand with a PR number (the only way for a PR from a fork, because the token of a
+# `pull_request_review` run is read-only for forks). Then a script checks, in this order, and stops at the first failure:
+#   1. the PR is open, not a draft, targets main and touches no protected file: .github/, SECURITY.md, LICENSE,
+#      scripts/, macos/scripts/ (build, signing and notarisation), the entitlements and the Info.plist templates;
+#   2. the newest review of at least one maintainer is an approval of the current head commit, the approver really has
+#      write, maintain or admin permission (checked with the API, not only the author association), and no maintainer's
+#      newest review asks for changes;
+#   3. the `windows` and `macos` checks of ci.yml succeeded on that commit;
+#   4. the latest Claude verdict comment, if there is one, is not HOLD.
+# It then squash-merges with --match-head-commit, so a commit pushed after the checks is never merged. Releases are made
+# by hand (docs/MAINTAINING.md).
+#
+# Why this is safe: no PR code is checked out or run, no secret besides GITHUB_TOKEN is used, and the decision rests
+# on a human approval that this workflow only reads.
+on:
+  pull_request_review:
+    types: [submitted]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to merge
+        required: true
+
+permissions: {}
+
+jobs:
+  merge:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.review.state == 'approved' &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association) &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: merge-${{ github.event.pull_request.number || inputs.pr }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - name: Check and merge
+        run: |
+          set -e
+          [[ "$PR" =~ ^[0-9]+$ ]] || { echo "Not a PR number."; exit 1; }
+          trusted='["OWNER","MEMBER","COLLABORATOR"]'
+          read -r state draft base head changed < <(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json state,isDraft,baseRefName,headRefOid,changedFiles --jq '[.state,.isDraft,.baseRefName,.headRefOid,.changedFiles]|@tsv')
+          [ "$state" = OPEN ] && [ "$draft" = false ] && [ "$base" = main ] || { echo "PR #$PR is not an open, ready PR into main."; exit 1; }
+          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | [.filename, (.previous_filename // empty)] | .[]') || { echo "Could not list the files of PR #$PR."; exit 1; }
+          listed=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' | wc -l) || exit 1
+          [ "$listed" -eq "$changed" ] || { echo "PR #$PR lists $listed of $changed files. A maintainer must merge it by hand."; exit 1; }
+          protected='^(\.github/|SECURITY\.md$|LICENSE$|scripts/|macos/scripts/|.*\.entitlements$|macos/OsbManager/[^/]*\.plist\.in$)'
+          if grep -qE "$protected" <<<"$files"; then
+            echo "PR #$PR changes a protected file. A maintainer must merge it by hand."; exit 1
+          fi
+
+          reviews=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" | jq -s --argjson trusted "$trusted" '
+            add | map(select(.state != "COMMENTED" and .state != "PENDING" and (.author_association | IN($trusted[]))))
+            | group_by(.user.login) | map(sort_by(.submitted_at) | last)')
+          approvers=$(echo "$reviews" | jq -r --arg head "$head" '.[] | select(.state == "APPROVED" and .commit_id == $head) | .user.login')
+          allowed=""
+          for login in $approvers; do
+            permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$login/permission" --jq .permission 2>/dev/null || echo none)
+            case "$permission" in admin|maintain|write) allowed="$allowed $login" ;; esac
+          done
+          [ -n "$allowed" ] || { echo "No approval of $head by someone with write access (checked: $approvers). Merge it by hand if that is a mistake."; exit 1; }
+          echo "$reviews" | jq -e 'all(.[]; .state != "CHANGES_REQUESTED")' >/dev/null || { echo "A maintainer asked for changes."; exit 1; }
+
+          for check in windows macos; do
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?check_name=$check" --jq '.check_runs|sort_by(.completed_at)|last|.conclusion // "missing"')
+            [ "$conclusion" = success ] || { echo "The $check check is: $conclusion."; exit 1; }
+          done
+
+          verdict=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json comments --jq '[.comments[]|select(.author.login=="github-actions" or .author.login=="claude")|.body|capture("VERDICT: (?<v>MERGE|HOLD)").v]|last // "NONE"')
+          [ "$verdict" != HOLD ] || { echo "The Claude review says HOLD."; exit 1; }
+
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --squash --match-head-commit "$head"

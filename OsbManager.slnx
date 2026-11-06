@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OsbManager.Core/OsbManager.Core.csproj" />
+    <Project Path="src/OsbManager/OsbManager.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OsbManager.Tests/OsbManager.Tests.csproj" />
+  </Folder>
+</Solution>
