@@ -15,7 +15,13 @@ public struct InstalledScript: Equatable, Identifiable {
 }
 
 public protocol ScriptDownloading {
-    func download(_ url: URL) async throws -> String
+    func download(_ url: URL, maxBytes: Int) async throws -> String
+}
+
+public extension ScriptDownloading {
+    func download(_ url: URL) async throws -> String {
+        try await download(url, maxBytes: ScriptStore.maxScriptBytes)
+    }
 }
 
 @MainActor
@@ -90,13 +96,11 @@ public final class ScriptStore {
     }
 
     @discardableResult
-    public func install(fromUrl address: String, downloader: ScriptDownloading) async throws -> InstalledScript {
-        guard let url = URL(string: address), url.scheme == "https", url.host != nil else {
-            throw ScriptFormatError("Use an https:// address.")
-        }
-        let source = try await downloader.download(url)
-        if source.utf8.count > Self.maxScriptBytes {
-            throw ScriptFormatError("The script is too large.")
+    public func install(fromUrl address: String, downloader: ScriptDownloading, allowLoopbackHttp: Bool = false, accept: ((UserScriptMeta) -> Bool)? = nil) async throws -> InstalledScript {
+        let url = try ScriptAddress.url(address, allowLoopbackHttp: allowLoopbackHttp)
+        let source = try await ScriptAddress.download(address, downloader: downloader, maxBytes: Self.maxScriptBytes, allowLoopbackHttp: allowLoopbackHttp)
+        if let accept, !accept(try UserScriptMeta.parse(source)) {
+            throw ScriptFormatError("The downloaded script is not the expected one.")
         }
         return try install(source: source, sourceUrl: url.absoluteString)
     }
@@ -144,20 +148,20 @@ public final class ScriptStore {
 public struct HttpScriptDownloader: ScriptDownloading {
     public init() {}
 
-    public func download(_ url: URL) async throws -> String {
+    public func download(_ url: URL, maxBytes: Int) async throws -> String {
         var request = URLRequest(url: url, timeoutInterval: 60)
         request.setValue("OsbManager/1.0", forHTTPHeaderField: "User-Agent")
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ScriptFormatError("The server answered with status \(http.statusCode).")
         }
-        if response.expectedContentLength > Int64(ScriptStore.maxScriptBytes) {
+        if response.expectedContentLength > Int64(maxBytes) {
             throw ScriptFormatError("The script is too large.")
         }
         var data = Data()
         for try await byte in bytes {
             data.append(byte)
-            if data.count > ScriptStore.maxScriptBytes {
+            if data.count > maxBytes {
                 throw ScriptFormatError("The script is too large.")
             }
         }

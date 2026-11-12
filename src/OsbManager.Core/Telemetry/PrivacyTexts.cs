@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace OsbManager.Core.Telemetry;
 
 /// <summary>The texts of the privacy and report dialogs. Consent texts are those of CONSENT.md, version id <see cref="TextVersion"/>.</summary>
@@ -7,14 +5,15 @@ public sealed record PrivacyTexts
 {
     public const string TextVersion = TelemetryLimits.ConsentTextId;
     private const string EnglishPolicyUrl = "https://osb.lol/en/privacy/";
-    private const string TurkishPolicyUrl = "https://osb.lol/gizlilik/";
+    private const string KvkkNoticeAddress = "https://osb.lol/kvkk/aydinlatma-metni/";
+    private const string KvkkConsentAddress = "https://osb.lol/kvkk/acik-riza-metni/";
     public const string PrivacyEmail = "privacy@osb.lol";
 
     public required string PolicyUrl { get; init; }
-    public string? KvkkNoticeUrl { get; init; }
-    public string? KvkkNoticeLink { get; init; }
-    public string? KvkkConsentUrl { get; init; }
-    public string? KvkkConsentLink { get; init; }
+    public required string KvkkNoticeUrl { get; init; }
+    public required string KvkkNoticeLink { get; init; }
+    public required string KvkkConsentUrl { get; init; }
+    public required string KvkkConsentLink { get; init; }
     public required string PrivacyMenu { get; init; }
     public required string PrivacyTitle { get; init; }
     public required string UsageLabel { get; init; }
@@ -23,6 +22,8 @@ public sealed record PrivacyTexts
     public required string CharactersHelp { get; init; }
     public required string ShowSent { get; init; }
     public required string NothingToShow { get; init; }
+    public required string SentUsageTitle { get; init; }
+    public required string SentDiagnosticsTitle { get; init; }
     public required string StopConfirm { get; init; }
     public required string DeleteData { get; init; }
     public required string DeleteConfirm { get; init; }
@@ -76,28 +77,38 @@ public sealed record PrivacyTexts
     public required string SendAgain { get; init; }
     public required string Delete { get; init; }
     public required string FirstRunTitle { get; init; }
+    public required string FirstRunChangedLead { get; init; }
     public required string FirstRunText { get; init; }
     public required string FirstRunShare { get; init; }
     public required string FirstRunDecline { get; init; }
     public required string FirstRunWhat { get; init; }
-
-    public static PrivacyTexts For(CultureInfo culture) =>
-        string.Equals(culture.TwoLetterISOLanguageName, "tr", StringComparison.OrdinalIgnoreCase) ? Turkish : English;
+    public required string FirstRunClose { get; init; }
 
     public static PrivacyTexts English { get; } = new()
     {
         PolicyUrl = EnglishPolicyUrl,
+        KvkkNoticeUrl = KvkkNoticeAddress,
+        KvkkNoticeLink = "KVKK notice (Turkish)",
+        KvkkConsentUrl = KvkkConsentAddress,
+        KvkkConsentLink = "KVKK explicit consent (Turkish)",
         PrivacyMenu = "Privacy…",
         PrivacyTitle = "Privacy",
-        UsageLabel = "Share usage statistics",
-        UsageHelp = "When this is on, OSB Manager sends a short status report about every 10 minutes to our server, api.osb.lol: the app and bot version, operating system, language, and for each game account the bot state, level, gold, HP and MP percentage, scroll counts and the current session's kills, deaths, XP, gold and SoX drops. It is linked to a random install ID, not to your login ID, password or computer. We use it to see how OSB is used and where it gets stuck, and keep it for 45 days (the install record for 90 days after it was last seen). Turn it off at any time; your data on our server is then deleted. Details: osb.lol/privacy",
+        UsageLabel = "Share usage statistics, error reports and performance data",
+        UsageHelp = "When this is on, OSB Manager sends data to our server, api.osb.lol, about every 10 minutes, so we can see how OSB is used and find and fix its errors:\r\n"
+            + "- Usage: the app and bot version, operating system and language, and for each game account the bot state, level, gold, HP and MP percentage, scroll counts and the current session's kills, deaths, XP, gold and SoX drops.\r\n"
+            + "- Errors: which part of the app failed and how (the error type, a fixed message and the place in our code), what the app did just before (fixed event codes, never the text of your log), crashes and freezes of game windows, and how the app last closed.\r\n"
+            + "- Performance: the memory and processor use of the app and its game windows, the Windows and WebView2 versions, and the rough size of your computer (memory, processor cores, graphics card maker).\r\n"
+            + "\r\n"
+            + "Unless you also turn on character names below, it contains no character, player or account names. It never contains chat, positions, passwords, login IDs, file paths, your computer's name, hardware IDs or memory dumps. It is kept under a random install ID that is not linked to your name, login ID or computer. We keep usage data for 45 days, error data for 30 days and performance data for 14 days, and the install record for 90 days after it was last seen. Daily totals without the install ID are kept for 13 months. Turn it off at any time; your data on our server is then deleted, except those daily totals, which cannot identify you. Details: osb.lol/privacy",
         CharactersLabel = "Show my characters in the OSB dashboard",
         CharactersHelp = "Also sends your character names and server names, so the OSB team can see your characters by name in its private dashboard. Never shown publicly. Turning this off deletes the names at once.",
-        StopConfirm = "Stop sharing and delete your usage data from api.osb.lol? Reports you already sent are deleted too.",
+        StopConfirm = "Stop sharing usage statistics, error reports and performance data, and delete them from api.osb.lol? Reports you already sent are deleted too.",
         ShowSent = "Show what is sent",
         NothingToShow = "Nothing would be sent right now: no game window is open.",
+        SentUsageTitle = "Usage statistics, next batch",
+        SentDiagnosticsTitle = "Error reports and performance data, next batch",
         DeleteData = "Delete my data",
-        DeleteConfirm = "Delete all data for this install from api.osb.lol, including reports linked to it? This cannot be undone.",
+        DeleteConfirm = "Delete all data for this install from api.osb.lol, including linked reports, error reports and performance data? Sharing is turned off. This cannot be undone.",
         DeleteFailed = "The server could not be reached. Nothing is sent from this PC any more. To have the data deleted, e-mail {0} with this install ID: {1}",
         DownloadData = "Download my data",
         DownloadFailed = "The data could not be downloaded. Try again later.",
@@ -115,7 +126,7 @@ public sealed record PrivacyTexts
         Close = "Close",
         ReportMenu = "Report a problem…",
         ReportTitle = "Report a problem",
-        ReportNotice = "When you press Send, this report goes to the OSB team at our server, api.osb.lol: your description, the technical details shown below and the screenshot, if you added one. Please leave out passwords and personal details. If the report shows a bug, we may quote your description and parts of the details in a public GitHub issue; never your install ID, character names, e-mail or screenshot. Kept for 6 months after the matter closes.",
+        ReportNotice = "When you press Send, this report goes to the OSB team at our server, api.osb.lol: your description, the technical details shown below and the screenshot, if you added one. Please leave out passwords and personal details. We never copy your description or the details into a public GitHub issue. If the report shows a bug, we may open a public issue that we write ourselves, with only our own summary, the product and version and the report code. It never contains your install ID, character names, e-mail or screenshot. Kept for 6 months after the matter closes.",
         ReportNoticeAnonymous = "Usage statistics are off, so this report is anonymous. Keep the report code if you want it deleted later.",
         Kind = "Kind",
         KindBug = "Bug",
@@ -147,84 +158,12 @@ public sealed record PrivacyTexts
         UnsentFailed = "Could not be sent in 72 hours",
         SendAgain = "Send again",
         Delete = "Delete",
-        FirstRunText = "If you choose Share, OSB Manager sends a short status report about every 10 minutes to our server, api.osb.lol: the app version, operating system and language, and for each game account the bot state, level, gold, HP and MP, scroll counts and the current session's kills, deaths, XP, gold and SoX drops. It is linked to a random install ID, not to your login ID, password or computer. We use it to see how OSB is used and where it gets stuck. If you choose No thanks, nothing is sent. You can switch it off at any time under Privacy, and your data on our server is then deleted.",
-        FirstRunTitle = "Share usage statistics with the OSB team?",
+        FirstRunTitle = "Share usage statistics, error reports and performance data with the OSB team?",
+        FirstRunChangedLead = "What OSB Manager shares has changed: it now includes error reports and performance data.",
+        FirstRunText = "If you choose Share, OSB Manager sends a short report about every 10 minutes to our server, api.osb.lol: the app version, operating system and language; for each game account the bot state, level, gold, HP and MP, scroll counts and the current session's kills, deaths, XP, gold and SoX drops; and error reports, crash reports and memory and processor use. It contains no character or account names, chat, passwords, login IDs, file paths or memory dumps, and it is kept under a random install ID that is not linked to you. We use it to see how OSB is used and to find and fix problems. If you choose No thanks, nothing is sent. You can switch it off at any time under Privacy, and your data on our server is then deleted.",
         FirstRunShare = "Share",
         FirstRunDecline = "No thanks",
         FirstRunWhat = "What is sent?",
-    };
-
-    public static PrivacyTexts Turkish { get; } = new()
-    {
-        PolicyUrl = TurkishPolicyUrl,
-        KvkkNoticeUrl = "https://osb.lol/kvkk/aydinlatma-metni/",
-        KvkkNoticeLink = "KVKK aydınlatma metni",
-        KvkkConsentUrl = "https://osb.lol/kvkk/acik-riza-metni/",
-        KvkkConsentLink = "Açık rıza metni",
-        PrivacyMenu = "Gizlilik…",
-        PrivacyTitle = "Gizlilik",
-        UsageLabel = "Kullanım istatistiklerini paylaş",
-        UsageHelp = "Bu seçenek açıkken OSB Manager yaklaşık 10 dakikada bir sunucumuz api.osb.lol'a kısa bir durum raporu gönderir: uygulama ve bot sürümü, işletim sistemi, dil ve her oyun hesabı için bot durumu, seviye, altın, HP ve MP yüzdesi, scroll sayıları ile o anki oturumun öldürme, ölüm, XP, altın ve SoX düşüş sayıları. Bu veriler giriş kimliğine, şifrene ya da bilgisayarına değil, rastgele bir kurulum kimliğine bağlıdır. OSB'nin nasıl kullanıldığını ve nerede takıldığını görmek için kullanırız; 45 gün saklarız (kurulum kaydını son görülmeden 90 gün). İstediğin zaman kapatabilirsin; o zaman sunucudaki verilerin silinir. Ayrıntılar: osb.lol/gizlilik · Açık rıza metni: osb.lol/kvkk/acik-riza-metni",
-        CharactersLabel = "Karakterlerimi OSB panelinde göster",
-        CharactersHelp = "Karakter adlarını ve sunucu adlarını da gönderir; böylece OSB ekibi karakterlerini kendi özel panelinde adıyla görür. Hiçbir zaman herkese açık gösterilmez. Kapattığında adlar hemen silinir.",
-        StopConfirm = "Paylaşım durdurulsun ve kullanım verilerin api.osb.lol'dan silinsin mi? Daha önce gönderdiğin raporlar da silinir.",
-        ShowSent = "Gönderilenleri göster",
-        NothingToShow = "Şu anda gönderilecek bir şey yok: açık oyun penceresi yok.",
-        DeleteData = "Verilerimi sil",
-        DeleteConfirm = "Bu kuruluma ait tüm veriler, bağlı raporlar dahil, api.osb.lol'dan silinsin mi? Bu işlem geri alınamaz.",
-        DeleteFailed = "Sunucuya ulaşılamadı. Bu bilgisayardan artık hiçbir şey gönderilmiyor. Verilerin silinmesi için bu kurulum kimliğiyle {0} adresine e-posta gönderin: {1}",
-        DownloadData = "Verilerimi indir",
-        DownloadFailed = "Veriler indirilemedi. Daha sonra tekrar deneyin.",
-        Saved = "{0} dosyasına kaydedildi.",
-        InstallId = "Kurulum kimliği",
-        ConsentRecord = "Kayıtlı onay: metin sürümü {0}, {1}",
-        NoConsentRecord = "Kayıtlı onay yok. Hiçbir şey gönderilmez.",
-        LastSent = "Son gönderim",
-        NotSentYet = "henüz gönderilmedi",
-        ServerUnreachable = "sunucuya ulaşılamıyor",
-        ServerMessage = "Sunucudan mesaj",
-        PolicyLine = "Gizlilik politikası: " + TurkishPolicyUrl,
-        PolicyLink = "Gizlilik politikası",
-        Copy = "Kopyala",
-        Close = "Kapat",
-        ReportMenu = "Sorun bildir…",
-        ReportTitle = "Sorun bildir",
-        ReportNotice = "Gönder'e bastığında bu rapor sunucumuz api.osb.lol'daki OSB ekibine gider: açıklaman, aşağıda gösterilen teknik ayrıntılar ve eklediysen ekran görüntüsü. Şifre ve kişisel bilgi yazma. Rapor bir hatayı gösteriyorsa açıklamandan ve ayrıntılardan herkese açık bir GitHub konusunda alıntı yapabiliriz; kurulum kimliğini, karakter adlarını, e-postanı ya da ekran görüntüsünü asla. Konu kapandıktan sonra 6 ay saklanır.",
-        ReportNoticeAnonymous = "Kullanım istatistikleri kapalı, bu yüzden rapor anonim. Daha sonra silinmesini istersen rapor kodunu sakla.",
-        Kind = "Tür",
-        KindBug = "Hata",
-        KindFeature = "Özellik isteği",
-        Description = "Açıklama (en fazla 2000 karakter)",
-        Screenshot = "Ekran görüntüsü",
-        AddScreenshot = "Ekran görüntüsü ekle",
-        ScreenshotNotice = "OSB Manager seçtiğin oyun penceresinin tek bir görüntüsünü alır ve bir şey gönderilmeden önce burada gösterir. Görüntü yalnızca bu raporla, yalnızca Gönder'e bastığında gönderilir ve 30 gün saklanır. Paylaşmak istemediğin ad ya da sohbet var mı diye bak; Kaldır ile çıkarabilirsin.",
-        ChooseWindow = "Hangi oyun penceresi?",
-        RemoveScreenshot = "Kaldır",
-        ScreenshotFailed = "Ekran görüntüsü alınamadı.",
-        Preview = "Gönderilecek içeriğin tamamı",
-        NoteAnonymous = "Kullanım istatistikleri kapalı: bu rapor bir kuruluma bağlı değil.",
-        NoteLinked = "Kullanım istatistikleri açık: bu rapor kurulum kimliğine bağlanır.",
-        Send = "Gönder",
-        Cancel = "İptal",
-        ConfirmSend = "Bu rapor şimdi OSB ekibine gönderilsin mi?",
-        SentWithCode = "Gönderildi. Rapor kodun {0}. Raporun daha sonra silinmesini istersen bu kodu sakla.",
-        SentWithoutCode = "Gönderildi.",
-        Queued = "Sunucuya ulaşılamadı. Rapor kaydedildi ve daha sonra gönderilecek ({0}).",
-        QueueFull = "Rapor gönderilemedi ve bekleyen çok fazla rapor var. Daha sonra tekrar deneyin.",
-        TooLarge = "Rapor sonradan göndermek üzere kaydedilemeyecek kadar büyük. Ekran görüntüsünü kaldırıp tekrar deneyin.",
-        NotSaved = "Rapor gönderilemedi ve kaydedilemedi de ({0}). Daha sonra tekrar deneyin.",
-        Rejected = "Sunucu raporu kabul etmedi ({0}). Rapor gönderilmedi.",
-        DescriptionNeeded = "Önce sorunu açıklayın.",
-        UnsentMenu = "Gönderilmemiş raporlar…",
-        UnsentTitle = "Gönderilmemiş raporlar",
-        UnsentPending = "Gönderilmeyi bekliyor",
-        UnsentFailed = "72 saatte gönderilemedi",
-        SendAgain = "Tekrar gönder",
-        Delete = "Sil",
-        FirstRunText = "Paylaş'ı seçersen OSB Manager yaklaşık 10 dakikada bir sunucumuz api.osb.lol'a kısa bir durum raporu gönderir: uygulama sürümü, işletim sistemi ve dil, her oyun hesabı için bot durumu, seviye, altın, HP ve MP, scroll sayıları ve o anki oturumun öldürme, ölüm, XP, altın ve SoX düşüş sayıları. Bu veriler giriş kimliğine, şifrene ya da bilgisayarına değil, rastgele bir kurulum kimliğine bağlıdır. OSB'nin nasıl kullanıldığını ve nerede takıldığını görmek için kullanırız. \"Hayır, teşekkürler\" dersen hiçbir şey gönderilmez. İstediğin zaman Gizlilik bölümünden kapatabilirsin; o zaman sunucudaki verilerin silinir.",
-        FirstRunTitle = "Kullanım istatistiklerini OSB ekibiyle paylaşmak ister misin?",
-        FirstRunShare = "Paylaş",
-        FirstRunDecline = "Hayır, teşekkürler",
-        FirstRunWhat = "Neler gönderiliyor?",
+        FirstRunClose = "Close (No thanks)",
     };
 }

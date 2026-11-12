@@ -146,111 +146,108 @@ public class ClientSupportTests
     }
 
     [Fact]
-    public void TurkishIsChosenForTrAndEnglishForEverythingElse()
+    public void ThereIsOneEnglishTextSetAndNoLanguageSwitch()
     {
-        Assert.Same(PrivacyTexts.Turkish, PrivacyTexts.For(new CultureInfo("tr-TR")));
-        Assert.Same(PrivacyTexts.Turkish, PrivacyTexts.For(new CultureInfo("tr")));
-        Assert.Same(PrivacyTexts.English, PrivacyTexts.For(new CultureInfo("en-US")));
-        Assert.Same(PrivacyTexts.English, PrivacyTexts.For(new CultureInfo("de-DE")));
-        Assert.Same(PrivacyTexts.English, PrivacyTexts.For(CultureInfo.InvariantCulture));
+        Assert.Null(typeof(PrivacyTexts).GetMethod("For"));
+        Assert.Null(typeof(PrivacyTexts).GetProperty("Turkish"));
+        Assert.Single(typeof(PrivacyTexts).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static), p => p.PropertyType == typeof(PrivacyTexts));
     }
 
-    private static readonly string[] OptionalTexts =
-    [
-        nameof(PrivacyTexts.PolicyLine),
-        nameof(PrivacyTexts.KvkkNoticeUrl),
-        nameof(PrivacyTexts.KvkkNoticeLink),
-        nameof(PrivacyTexts.KvkkConsentUrl),
-        nameof(PrivacyTexts.KvkkConsentLink),
-    ];
-
     [Fact]
-    public void EveryTextIsFilledInBothLanguages()
+    public void EveryTextIsFilledAndEnglish()
     {
-        foreach (var texts in new[] { PrivacyTexts.English, PrivacyTexts.Turkish })
+        foreach (var property in typeof(PrivacyTexts).GetProperties().Where(p => p.PropertyType == typeof(string)))
         {
-            foreach (var property in typeof(PrivacyTexts).GetProperties().Where(p => p.PropertyType == typeof(string) && !OptionalTexts.Contains(p.Name)))
-            {
-                Assert.False(string.IsNullOrWhiteSpace((string?)property.GetValue(texts)), property.Name);
-            }
+            var text = (string?)property.GetValue(PrivacyTexts.English);
+            Assert.False(string.IsNullOrWhiteSpace(text), property.Name);
+            Assert.DoesNotMatch("[çğıöşüÇĞİÖŞÜ]", text!);
         }
     }
 
     [Fact]
-    public void TheConsentWordingIsThatOfConsentMdVersionTwentyTwentySixElevenZeroFourDotOne()
+    public void TheConsentWordingIsThatOfConsentMdVersionTwentyTwentySixElevenTwelveDotOne()
     {
-        Assert.Equal("2026-11-04.1", PrivacyTexts.TextVersion);
-        Assert.Equal("Share usage statistics", PrivacyTexts.English.UsageLabel);
-        Assert.Equal("Kullanım istatistiklerini paylaş", PrivacyTexts.Turkish.UsageLabel);
-        Assert.Equal("Share usage statistics with the OSB team?", PrivacyTexts.English.FirstRunTitle);
-        Assert.Equal("Kullanım istatistiklerini OSB ekibiyle paylaşmak ister misin?", PrivacyTexts.Turkish.FirstRunTitle);
+        Assert.Equal("2026-11-12.1", PrivacyTexts.TextVersion);
+        Assert.Equal(2, TelemetryLimits.ConsentVersion);
+        Assert.Equal("Share usage statistics, error reports and performance data", PrivacyTexts.English.UsageLabel);
+        Assert.Equal("Share usage statistics, error reports and performance data with the OSB team?", PrivacyTexts.English.FirstRunTitle);
+        Assert.Equal("What OSB Manager shares has changed: it now includes error reports and performance data.", PrivacyTexts.English.FirstRunChangedLead);
         Assert.Equal("Share", PrivacyTexts.English.FirstRunShare);
         Assert.Equal("No thanks", PrivacyTexts.English.FirstRunDecline);
-        Assert.Equal("Paylaş", PrivacyTexts.Turkish.FirstRunShare);
-        Assert.Equal("Hayır, teşekkürler", PrivacyTexts.Turkish.FirstRunDecline);
         Assert.Equal("Add screenshot", PrivacyTexts.English.AddScreenshot);
-        Assert.Equal("Ekran görüntüsü ekle", PrivacyTexts.Turkish.AddScreenshot);
-        Assert.Equal("Stop sharing and delete your usage data from api.osb.lol? Reports you already sent are deleted too.", PrivacyTexts.English.StopConfirm);
-        Assert.Equal("Delete all data for this install from api.osb.lol, including reports linked to it? This cannot be undone.", PrivacyTexts.English.DeleteConfirm);
+        Assert.Equal("Stop sharing usage statistics, error reports and performance data, and delete them from api.osb.lol? Reports you already sent are deleted too.", PrivacyTexts.English.StopConfirm);
+        Assert.Equal("Delete all data for this install from api.osb.lol, including linked reports, error reports and performance data? Sharing is turned off. This cannot be undone.", PrivacyTexts.English.DeleteConfirm);
         Assert.Equal("Sent. Your report code is {0}. Keep it if you want the report deleted later.", PrivacyTexts.English.SentWithCode);
         Assert.Equal("Usage statistics are off, so this report is anonymous. Keep the report code if you want it deleted later.", PrivacyTexts.English.ReportNoticeAnonymous);
-        Assert.Equal("Kullanım istatistikleri kapalı, bu yüzden rapor anonim. Daha sonra silinmesini istersen rapor kodunu sakla.", PrivacyTexts.Turkish.ReportNoticeAnonymous);
+        Assert.StartsWith("If you choose Share, OSB Manager sends a short report about every 10 minutes", PrivacyTexts.English.FirstRunText);
+        Assert.Contains("We never copy your description or the details into a public GitHub issue.", PrivacyTexts.English.ReportNotice);
+        Assert.DoesNotContain("quote", PrivacyTexts.English.ReportNotice);
     }
 
     [Fact]
-    public void TheUsageTextsNameTheServerTheRetentionAndThePolicyInBothLanguages()
+    public void TheTextsNameTheServerTheRetentionAndThePolicy()
     {
-        foreach (var texts in new[] { PrivacyTexts.English, PrivacyTexts.Turkish })
-        {
-            Assert.Contains("api.osb.lol", texts.UsageHelp);
-            Assert.Contains("api.osb.lol", texts.FirstRunText);
-            Assert.Contains("api.osb.lol", texts.ReportNotice);
-            Assert.Contains("45", texts.UsageHelp);
-            Assert.Contains("90", texts.UsageHelp);
-            Assert.Contains("6", texts.ReportNotice);
-            Assert.Contains("30", texts.ScreenshotNotice);
-            Assert.Contains("10", texts.FirstRunText);
-        }
-        Assert.Equal("https://osb.lol/en/privacy/", PrivacyTexts.English.PolicyUrl);
-        Assert.Equal("https://osb.lol/gizlilik/", PrivacyTexts.Turkish.PolicyUrl);
-        Assert.Contains("osb.lol/privacy", PrivacyTexts.English.UsageHelp);
-        Assert.Contains("osb.lol/gizlilik", PrivacyTexts.Turkish.UsageHelp);
-        Assert.Contains("osb.lol/kvkk/acik-riza-metni", PrivacyTexts.Turkish.UsageHelp);
+        var texts = PrivacyTexts.English;
+        Assert.Contains("api.osb.lol", texts.UsageHelp);
+        Assert.Contains("api.osb.lol", texts.FirstRunText);
+        Assert.Contains("api.osb.lol", texts.ReportNotice);
+        Assert.Contains("usage data for 45 days, error data for 30 days and performance data for 14 days", texts.UsageHelp);
+        Assert.Contains("90 days", texts.UsageHelp);
+        Assert.Contains("13 months", texts.UsageHelp);
+        Assert.Contains("6 months", texts.ReportNotice);
+        Assert.Contains("30 days", texts.ScreenshotNotice);
+        Assert.Contains("10", texts.FirstRunText);
+        Assert.Equal("https://osb.lol/en/privacy/", texts.PolicyUrl);
+        Assert.Contains("osb.lol/privacy", texts.UsageHelp);
     }
 
     [Fact]
-    public void KvkkLinksExistOnlyInTurkish()
+    public void TheKvkkLinksAreShownInEnglishAndMarkedTurkish()
     {
-        Assert.Null(PrivacyTexts.English.KvkkNoticeUrl);
-        Assert.Null(PrivacyTexts.English.KvkkConsentUrl);
-        Assert.Equal("https://osb.lol/kvkk/aydinlatma-metni/", PrivacyTexts.Turkish.KvkkNoticeUrl);
-        Assert.Equal("https://osb.lol/kvkk/acik-riza-metni/", PrivacyTexts.Turkish.KvkkConsentUrl);
-        Assert.False(string.IsNullOrWhiteSpace(PrivacyTexts.Turkish.KvkkNoticeLink));
-        Assert.False(string.IsNullOrWhiteSpace(PrivacyTexts.Turkish.KvkkConsentLink));
+        Assert.Equal("KVKK notice (Turkish)", PrivacyTexts.English.KvkkNoticeLink);
+        Assert.Equal("KVKK explicit consent (Turkish)", PrivacyTexts.English.KvkkConsentLink);
+        Assert.Equal("https://osb.lol/kvkk/aydinlatma-metni/", PrivacyTexts.English.KvkkNoticeUrl);
+        Assert.Equal("https://osb.lol/kvkk/acik-riza-metni/", PrivacyTexts.English.KvkkConsentUrl);
     }
 
     [Fact]
-    public void UsageStatisticsAreNeverCalledAnonymousAndOnlyAnUnlinkedReportMayBe()
+    public void TheMainTextsAreNeverCalledAnonymousAndOnlyAnUnlinkedReportMayBe()
     {
         var withoutAnonymousClaim = new[]
         {
-            nameof(PrivacyTexts.UsageLabel), nameof(PrivacyTexts.UsageHelp), nameof(PrivacyTexts.CharactersLabel), nameof(PrivacyTexts.CharactersHelp),
+            nameof(PrivacyTexts.UsageLabel), nameof(PrivacyTexts.CharactersLabel), nameof(PrivacyTexts.CharactersHelp),
             nameof(PrivacyTexts.StopConfirm), nameof(PrivacyTexts.DeleteConfirm), nameof(PrivacyTexts.FirstRunTitle), nameof(PrivacyTexts.FirstRunText),
-            nameof(PrivacyTexts.NoteAnonymous), nameof(PrivacyTexts.NoteLinked), nameof(PrivacyTexts.ReportNotice), nameof(PrivacyTexts.ScreenshotNotice),
-            nameof(PrivacyTexts.ConsentRecord), nameof(PrivacyTexts.NoConsentRecord), nameof(PrivacyTexts.PrivacyTitle),
+            nameof(PrivacyTexts.FirstRunChangedLead), nameof(PrivacyTexts.NoteAnonymous), nameof(PrivacyTexts.NoteLinked), nameof(PrivacyTexts.ReportNotice),
+            nameof(PrivacyTexts.ScreenshotNotice), nameof(PrivacyTexts.ConsentRecord), nameof(PrivacyTexts.NoConsentRecord), nameof(PrivacyTexts.PrivacyTitle),
         };
-        foreach (var texts in new[] { PrivacyTexts.English, PrivacyTexts.Turkish })
+        foreach (var name in withoutAnonymousClaim)
         {
-            foreach (var name in withoutAnonymousClaim)
-            {
-                var text = (string)typeof(PrivacyTexts).GetProperty(name)!.GetValue(texts)!;
-                Assert.DoesNotContain("anonymous", text, StringComparison.OrdinalIgnoreCase);
-                Assert.DoesNotContain("anonim", text, StringComparison.OrdinalIgnoreCase);
-            }
+            var text = (string)typeof(PrivacyTexts).GetProperty(name)!.GetValue(PrivacyTexts.English)!;
+            Assert.DoesNotContain("anonymous", text, StringComparison.OrdinalIgnoreCase);
         }
+        Assert.DoesNotContain("anonymous", PrivacyTexts.English.UsageHelp.Replace("which cannot identify you", ""), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("not linked to an install", PrivacyTexts.English.NoteAnonymous);
-        Assert.Contains("kuruluma bağlı değil", PrivacyTexts.Turkish.NoteAnonymous);
         Assert.Contains("usage statistics are off", PrivacyTexts.English.ReportNoticeAnonymous, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("tr-TR")]
+    [InlineData("de-DE")]
+    [InlineData("en-US")]
+    public void TheWindowsLanguageChangesNoTextButStaysTheLocaleData(string culture)
+    {
+        var previous = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = new CultureInfo(culture);
+            Assert.Equal("Share usage statistics, error reports and performance data", PrivacyTexts.English.UsageLabel);
+            var json = ReportPayload.Build(ReportKind.Bug, "x", ReportDiagnostics.Build("1.2.0", "10", ".NET", [], []), "1.2.0", CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+            Assert.Equal(culture[..2], (string?)System.Text.Json.Nodes.JsonNode.Parse(json)!["locale"]);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = previous;
+        }
     }
 
     [Fact]

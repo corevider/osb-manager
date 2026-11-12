@@ -10,7 +10,7 @@
     <AssemblyTitle>OSB Manager</AssemblyTitle>
     <Product>OSB Manager</Product>
     <Company>Corevider</Company>
-    <Version>1.0.2</Version>
+    <Version>1.1.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="OsbManager.Tests" />
+    <InternalsVisibleTo Include="OsbManager.Shots" />
   </ItemGroup>
 
   <ItemGroup>

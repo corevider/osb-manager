@@ -8,6 +8,7 @@ using OsbManager.Core.Cache;
 using OsbManager.Core.Scripts;
 using OsbManager.Core.Status;
 using OsbManager.Core.Telemetry;
+using OsbManager.Core.Telemetry.Diagnostics;
 using OsbManager.Core.Updates;
 
 namespace OsbManager;
@@ -15,6 +16,9 @@ namespace OsbManager;
 internal sealed class AppServices : IDisposable
 {
     public const string ApiBaseUrl = "https://api.osb.lol/v1";
+
+    private volatile string[] termSnapshot = [];
+    private volatile PerfWindows perfWindows = new(0, 0, 0, 0);
 
     public static string AppVersion { get; } = ReadVersion();
 
@@ -46,7 +50,27 @@ internal sealed class AppServices : IDisposable
     public SoxLog Sox { get; private init; } = null!;
     public TelemetryService Telemetry { get; private init; } = null!;
     public TimeProvider Time { get; private init; } = TimeProvider.System;
+    public TimeProvider WireTime { get; } = TimeProvider.System;
     public UpdateService Updates { get; private init; } = null!;
+    public WindowOrdinals Ordinals { get; } = new();
+    public Action<Action>? PostToUi { get; set; }
+
+    public PerfWindows PerfWindows
+    {
+        get => perfWindows;
+        set => perfWindows = value;
+    }
+
+    public void LearnTerms()
+    {
+        termSnapshot = Accounts.Accounts
+            .SelectMany(a => new[] { a.Name, a.LoginId, a.Server, a.Character, a.ProfileName })
+            .Concat(Characters.Values)
+            .Where(term => !string.IsNullOrWhiteSpace(term))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Telemetry.Capture.RefreshTerms();
+    }
 
     /// <summary>The character each open account's window reports, by account id.</summary>
     public System.Collections.Concurrent.ConcurrentDictionary<string, string> Characters { get; } = new();
@@ -65,7 +89,7 @@ internal sealed class AppServices : IDisposable
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
         var settings = AppSettings.Load(paths.SettingsFile);
-        return new AppServices(
+        var services = new AppServices(
             paths,
             log,
             AccountStore.Load(paths.AccountsFile),
@@ -81,6 +105,18 @@ internal sealed class AppServices : IDisposable
             Time = time,
             Updates = CreateUpdates(settings, log),
         };
+        services.WireDiagnostics();
+        return services;
+    }
+
+    private void WireDiagnostics()
+    {
+        Browser.ProcessCache.Recording = () => Telemetry.Diagnostics.Recording;
+        Telemetry.ConfigureDiagnostics(
+            new ProcessPerfSource(Browser.ProcessCache, () => PerfWindows, () => PostToUi?.Invoke(Browser.ProcessCache.Refresh)),
+            () => termSnapshot);
+        Log.ExceptionLogged += exception => Telemetry.Capture.Exception(exception, "caught", handled: true, new DiagnosticContext { Windows = PerfWindows.Open });
+        LearnTerms();
     }
 
     private static TimeProvider TelemetryTime()
@@ -102,9 +138,10 @@ internal sealed class AppServices : IDisposable
         var privacy = PrivacyStore.Load(paths.PrivacyFile, new InstallKeyProtector(), time, log.Warn);
         var service = new TelemetryService(
             privacy,
-            TelemetryClient.Create(baseUrl, UserAgent, time),
+            TelemetryClient.Create(baseUrl, UserAgent, TimeProvider.System),
             new StatusRegistry(),
             new ReportOutbox(paths.Outbox, time),
+            new DiagnosticsSetup(paths.Diagnostics, PrivateTerms.ForThisMachine(paths.Root), () => DiagnosticEnvironment.FromThisMachine(BrowserHost.RuntimeVersion()), time, TimeProvider.System),
             AppVersion,
             CultureInfo.CurrentUICulture.TwoLetterISOLanguageName,
             time,

@@ -99,7 +99,17 @@ public sealed class ScriptStore
         return installed;
     }
 
-    public async Task<InstalledScript> InstallFromUrlAsync(string url, HttpClient http, CancellationToken cancellation = default, bool allowLoopbackHttp = false)
+    public async Task<InstalledScript> InstallFromUrlAsync(string url, HttpClient http, CancellationToken cancellation = default, bool allowLoopbackHttp = false, Func<UserScriptMeta, bool>? accept = null)
+    {
+        var source = await DownloadTextAsync(url, http, MaxScriptBytes, cancellation, allowLoopbackHttp);
+        if (accept is not null && !accept(UserScriptMeta.Parse(source)))
+        {
+            throw new InvalidDataException("The downloaded script is not the expected one.");
+        }
+        return Install(source, new Uri(url).ToString());
+    }
+
+    public static async Task<string> DownloadTextAsync(string url, HttpClient http, int maxBytes, CancellationToken cancellation = default, bool allowLoopbackHttp = false)
     {
         var secure = Uri.TryCreate(url, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttps || allowLoopbackHttp && uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback);
@@ -109,16 +119,16 @@ public sealed class ScriptStore
         }
         using var response = await http.GetAsync(uri!, HttpCompletionOption.ResponseHeadersRead, cancellation);
         response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength > MaxScriptBytes)
+        if (response.Content.Headers.ContentLength > maxBytes)
         {
             throw new InvalidDataException("The script is too large.");
         }
         var source = await response.Content.ReadAsStringAsync(cancellation);
-        if (source.Length > MaxScriptBytes)
+        if (source.Length > maxBytes)
         {
             throw new InvalidDataException("The script is too large.");
         }
-        return Install(source, uri!.ToString());
+        return source;
     }
 
     public void SetEnabled(InstalledScript script, bool enabled)

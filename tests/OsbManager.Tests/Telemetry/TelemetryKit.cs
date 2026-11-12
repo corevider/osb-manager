@@ -3,6 +3,7 @@ using OsbManager.Browser;
 using OsbManager.Core;
 using OsbManager.Core.Status;
 using OsbManager.Core.Telemetry;
+using OsbManager.Core.Telemetry.Diagnostics;
 
 namespace OsbManager.Tests.Telemetry;
 
@@ -10,14 +11,15 @@ internal sealed class TelemetryKit : IDisposable
 {
     public const string AppVersion = "1.2.0";
 
-    private readonly TempDirectory directory = new();
+    private readonly TempDirectory? directory;
     private readonly List<string> log = [];
 
-    public TelemetryKit(double random = 0.5, IStatusSource? source = null, string? privacyFile = null)
+    public TelemetryKit(double random = 0.5, IStatusSource? source = null, string? privacyFile = null, string? root = null, FakeTimeProvider? time = null, FakeTimeProvider? wireTime = null)
     {
-        Time = new FakeTimeProvider();
+        Time = time ?? new FakeTimeProvider();
         Server = new FakeServer(Time);
-        Paths = new AppPaths(directory.Path);
+        directory = root is null ? new TempDirectory() : null;
+        Paths = new AppPaths(root ?? directory!.Path);
         if (privacyFile is not null)
         {
             File.WriteAllText(Paths.PrivacyFile, privacyFile);
@@ -26,7 +28,8 @@ internal sealed class TelemetryKit : IDisposable
         Client = new TelemetryClient(new Uri("https://api.test/v1"), AppIdentity.UserAgent(AppVersion), Server, Time);
         Outbox = new ReportOutbox(Paths.Outbox, Time);
         Random = () => random;
-        Service = new TelemetryService(Store, Client, Statuses, Outbox, AppVersion, "en", Time, () => Random(), Log, source);
+        Terms = PrivateTerms.ForMachine("CanaryWinUser", "CANARY-PC", "CANARY-DOMAIN", Paths.Root);
+        Service = new TelemetryService(Store, Client, Statuses, Outbox, new DiagnosticsSetup(Paths.Diagnostics, Terms, () => Env, null, wireTime), AppVersion, "en", Time, () => Random(), Log, source);
     }
 
     public FakeTimeProvider Time { get; }
@@ -37,7 +40,9 @@ internal sealed class TelemetryKit : IDisposable
     public ReportOutbox Outbox { get; }
     public StatusRegistry Statuses { get; } = new();
     public TelemetryService Service { get; }
+    public PrivateTerms Terms { get; }
     public Func<double> Random { get; set; }
+    public DiagnosticEnv Env { get; set; } = new("10.0.26100", "131.0.2903.70", "10.0.1", 16, 8, "nvidia");
 
     public IReadOnlyList<string> LogLines
     {
@@ -102,6 +107,6 @@ internal sealed class TelemetryKit : IDisposable
     public void Dispose()
     {
         Service.Dispose();
-        directory.Dispose();
+        directory?.Dispose();
     }
 }

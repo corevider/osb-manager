@@ -208,3 +208,57 @@ test('a new configuration clears a stop', () => {
   page.tick(25000);
   assert.equal(login.status().stage, 'credentials');
 });
+
+test('a new page after a window restart logs in even when the closed page was in the middle of a login', () => {
+  const before = setup({ screen: ['account', 'password', 'login'] });
+  before.page.tick(9000);
+  before.login.credentials({ id: 'demo_account', password: 'made-up' });
+  assert.equal(before.login.status().stage, 'connecting');
+
+  const { page, login } = setup({ screen: ['account', 'password', 'login'] });
+  assert.equal(page.tick(9000).stage, 'credentials');
+  assert.deepEqual(plain(page.posts), [{ type: 'credentials-request' }]);
+  login.credentials({ id: 'demo_account', password: 'made-up' });
+  assert.equal(login.status().stage, 'connecting');
+});
+
+test('a new page does not inherit a stop or the tries of the closed page', () => {
+  const before = setup({ screen: ['account', 'password', 'login'] });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    before.page.tick(25000);
+    before.login.credentials({ id: 'demo_account', password: 'wrong' });
+  }
+  before.page.tick(25000);
+  assert.equal(before.login.status().stage, 'failed');
+
+  const { page } = setup({ screen: ['account', 'password', 'login'] });
+  assert.equal(page.tick(9000).stage, 'credentials');
+});
+
+test('a login the game restored by itself enters the character without typing the saved login', () => {
+  const { page } = setup({ session: { phase: 'authenticating' }, config: { enabled: true, character: 'Hunter' } });
+  assert.equal(page.tick(9000).stage, 'waiting');
+  page.session = { phase: 'character-select', characters: roster };
+  assert.equal(page.tick().stage, 'entering');
+  assert.deepEqual(page.entered, ['Hunter']);
+  assert.deepEqual(page.posts, []);
+});
+
+test('the same settings sent again do not disturb a login in progress', () => {
+  const { page, login } = setup({ screen: ['account', 'password', 'login'] });
+  page.tick(9000);
+  login.configure({ enabled: true, character: '', server: '' });
+  assert.equal(login.status().stage, 'credentials');
+  login.credentials({ id: 'demo_account', password: 'made-up' });
+  assert.equal(login.status().stage, 'connecting');
+  login.configure({ enabled: true, character: '', server: '' });
+  assert.equal(login.status().stage, 'connecting');
+  assert.equal(page.posts.length, 1);
+});
+
+test('settings that arrive late still start the login', () => {
+  const { page, login } = setup({ screen: ['account', 'password', 'login'], config: { enabled: false } });
+  assert.equal(page.tick(9000).stage, 'off');
+  login.configure({ enabled: true, character: '', server: '' });
+  assert.equal(page.tick().stage, 'credentials');
+});

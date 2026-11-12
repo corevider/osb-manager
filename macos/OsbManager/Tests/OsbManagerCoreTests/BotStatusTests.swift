@@ -197,6 +197,27 @@ struct GameWindowStateTests {
         #expect(GameWindowState.botColumn(status { $0.botVersion = "1"; $0.hunting = true }) == "Hunting")
         #expect(GameWindowState.botColumn(status { $0.botVersion = "1" }) == "Stopped")
     }
+
+    @Test func addsTheWindowVisibilityToTheState() {
+        #expect(GameWindowState.withVisibility("In game", hidden: false, minimised: false) == "In game")
+        #expect(GameWindowState.withVisibility("In game (light)", hidden: true, minimised: false) == "In game (light) (hidden)")
+        #expect(GameWindowState.withVisibility("Loading", hidden: false, minimised: true) == "Loading (minimised)")
+        #expect(GameWindowState.visibility(hidden: false, minimised: false) == "visible")
+    }
+}
+
+struct LogEntryTests {
+    @Test func formatsAnEntryMadeOutsideTheLog() {
+        var parts = DateComponents()
+        parts.year = 2026
+        parts.month = 11
+        parts.day = 8
+        parts.hour = 18
+        parts.minute = 29
+        parts.second = 40
+        let time = Calendar.current.date(from: parts) ?? Date()
+        #expect(LogEntry(time: time, level: "info", message: "Main: starting.").text == "[18:29:40] info: Main: starting.")
+    }
 }
 
 struct FormatTests {

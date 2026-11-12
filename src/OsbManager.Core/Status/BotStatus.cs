@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using OsbManager.Core.Telemetry.Diagnostics;
 
 namespace OsbManager.Core.Status;
 
@@ -39,6 +40,8 @@ public sealed record BotStatus
 
     /// <summary>Seconds until the page tries to start the renderer again; 0 when no retry is waiting.</summary>
     public int GpuRetryIn { get; init; }
+
+    public string? GpuVendor { get; init; }
 
     /// <summary>Return scrolls (any kind) in the character's bag.</summary>
     public int? ReturnScrolls { get; init; }
@@ -112,6 +115,7 @@ public sealed record BotStatus
                 GpuFailed = gpu.ValueKind == JsonValueKind.Object ? Text(gpu, "failed", 200) : null,
                 GpuRetryLimit = gpu.ValueKind == JsonValueKind.Object ? (int)(Whole(gpu, "limit", 0, 100) ?? 0) : 0,
                 GpuRetryIn = gpu.ValueKind == JsonValueKind.Object ? (int)(Whole(gpu, "retryIn", 0, 3600) ?? 0) : 0,
+                GpuVendor = gpu.ValueKind == JsonValueKind.Object && Text(gpu, "vendor", 16) is { } vendor && DiagnosticFormats.GpuVendors.Contains(vendor) ? vendor : null,
                 Linked = Flag(root, "linked"),
                 Session = root.TryGetProperty("session", out var session) && session.ValueKind == JsonValueKind.Object
                     ? new SessionStats(

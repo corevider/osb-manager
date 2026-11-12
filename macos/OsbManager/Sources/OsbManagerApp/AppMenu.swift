@@ -80,17 +80,17 @@ enum AppMenu {
         let menu = NSMenu(title: "Accounts")
         let up = String(UnicodeScalar(NSUpArrowFunctionKey) ?? " ")
         let down = String(UnicodeScalar(NSDownArrowFunctionKey) ?? " ")
-        menu.addItem(item("Add…", #selector(MainWindowController.addAccount), key: "n", target: main))
-        menu.addItem(item("Remove…", #selector(MainWindowController.removeSelectedAccount), target: main))
-        menu.addItem(item("Move up", #selector(MainWindowController.moveSelectedUp), key: up, modifiers: [.command, .option], target: main))
-        menu.addItem(item("Move down", #selector(MainWindowController.moveSelectedDown), key: down, modifiers: [.command, .option], target: main))
+        menu.addItem(item(AccountMenu.add, #selector(MainWindowController.addAccount), key: "n", target: main))
+        menu.addItem(item(AccountMenu.remove, #selector(MainWindowController.removeSelectedAccount), target: main))
+        menu.addItem(item(AccountMenu.moveUp, #selector(MainWindowController.moveSelectedUp), key: up, modifiers: [.command, .option], target: main))
+        menu.addItem(item(AccountMenu.moveDown, #selector(MainWindowController.moveSelectedDown), key: down, modifiers: [.command, .option], target: main))
         menu.addItem(.separator())
-        menu.addItem(item("Start", #selector(MainWindowController.startSelectedAccount), key: "\r", target: main))
-        menu.addItem(item("Start light", #selector(MainWindowController.startSelectedAccountLight), key: "\r", modifiers: [.command, .shift], target: main))
-        menu.addItem(item("Start all", #selector(MainWindowController.startAllAccounts), target: main))
-        menu.addItem(item("Start all light", #selector(MainWindowController.startAllAccountsLight), target: main))
+        menu.addItem(item(AccountMenu.start, #selector(MainWindowController.startSelectedAccount), key: "\r", target: main))
+        menu.addItem(item(AccountMenu.startLight, #selector(MainWindowController.startSelectedAccountLight), key: "\r", modifiers: [.command, .shift], target: main))
+        menu.addItem(item(AccountMenu.startAll, #selector(MainWindowController.startAllAccounts), target: main))
+        menu.addItem(item(AccountMenu.startAllLight, #selector(MainWindowController.startAllAccountsLight), target: main))
         menu.addItem(.separator())
-        menu.addItem(item("Close all", #selector(MainWindowController.closeAllWindows), target: main))
+        menu.addItem(item(AccountMenu.closeAll, #selector(MainWindowController.closeAllWindows), target: main))
         return menu
     }
 
@@ -99,6 +99,7 @@ enum AppMenu {
         menu.addItem(item("Add from file…", #selector(MainWindowController.addScriptFromFile), target: main))
         menu.addItem(item("Add from URL…", #selector(MainWindowController.addScriptFromUrl), target: main))
         menu.addItem(item("Update", #selector(MainWindowController.updateScripts), target: main))
+        menu.addItem(item("Update OSB automatically", #selector(MainWindowController.toggleUpdateOsbAutomatically), target: main))
         menu.addItem(item("Reload open game windows", #selector(MainWindowController.reloadGameWindows), key: "r", modifiers: [.command, .shift], target: main))
         return menu
     }

@@ -107,12 +107,8 @@ internal sealed class PrivacyForm : Form
 
     private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
-    private void AddKvkkLink(string? text, string? url)
+    private void AddKvkkLink(string text, string url)
     {
-        if (text is null || url is null)
-        {
-            return;
-        }
         var link = new LinkLabel { AutoSize = true, Text = text, Margin = new Padding(0, 0, 14, 0) };
         link.LinkClicked += (_, _) => OpenUrl(url);
         kvkkLinks.Controls.Add(link);
@@ -219,8 +215,22 @@ internal sealed class PrivacyForm : Form
             sentBox.Visible = false;
             return;
         }
-        sentBox.Text = telemetry.PreviewNextPayload()?.ReplaceLineEndings("\r\n") ?? texts.NothingToShow;
+        sentBox.Text = PreviewText();
         sentBox.Visible = true;
+    }
+
+    private string PreviewText()
+    {
+        var sections = new List<string>();
+        if (telemetry.PreviewNextPayload() is { } usage)
+        {
+            sections.Add($"{texts.SentUsageTitle}\r\n{usage}");
+        }
+        if (telemetry.PreviewNextDiagnostics() is { } diagnostics)
+        {
+            sections.Add($"{texts.SentDiagnosticsTitle}\r\n{diagnostics}");
+        }
+        return sections.Count == 0 ? texts.NothingToShow : string.Join("\r\n\r\n", sections).ReplaceLineEndings("\r\n");
     }
 
     private async Task DownloadAsync()

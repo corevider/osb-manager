@@ -63,13 +63,16 @@ The first script publishes a self-contained single file for `win-x64` and writes
 
 1. **Add an account.** Click **+** and give the account a name. The name is shown only in this app.
 2. **Add the bot.**
-   - On the **Scripts** tab, click **Add from URL…**. The suggested address is the OSB bot: `https://raw.githubusercontent.com/corevider/osb/main/osb.user.js`.
+   - A new install puts OSB on the **Scripts** tab by itself, turned on, on Windows and macOS. An existing install is not changed. OSB then updates itself when a new version comes out. To stop this, untick **Scripts → Update OSB automatically**. Game windows that are open are not reloaded: the new version applies after a reload.
+   - **Add from URL…** adds OSB again, or by hand. On the **Scripts** tab, click **Add from URL…**. The suggested address is the OSB bot: `https://raw.githubusercontent.com/corevider/osb/main/osb.user.js`.
    - Or click **Add file…** and pick a local `.user.js` file.
 3. **Optional: save the game login.** On the **Account** tab, fill in **Login ID** and **Password**. You can also fill in **Server** and **Character**. Tick **Log in automatically**, then click **Save**. See [Automatic login](#automatic-login).
 4. **Start the account.** Use **Start**, **Start light** or a double-click. Without automatic login, log in inside the game window yourself.
 5. **Watch the account.** **Status** and **Stats** show every open account. They read what the bot reports through `window.SROLean`, which OSB and the previous bot both provide. **Status** also counts the scrolls in each character's bag: **Return** is every kind of return scroll (special ones included), **Reverse** the reverse return scrolls.
 
 **Starting every account.** **Start all light**, at the bottom or under **Accounts**, starts every closed account in light mode. **Start all** starts them in normal mode. Either way they open one at a time, 15 seconds apart.
+
+**The account menu.** Right-click an account (Control-click on macOS) to open a menu with Start, Close and the other actions. The same menu opens on the account's row in the **Status** tab.
 
 **The start order.** The accounts open in the order of the list, top first. To change it, select an account and move it with:
 
@@ -140,6 +143,13 @@ The bridge watches the simulation worker (`sro-simulation`) the same way the bot
 - **Resuming hunting.** To resume hunting after an automatic login (for example after a server restart), turn on the bot's **Start the bot when this character enters the game**.
 - **The browser itself** does not save or fill in passwords. Its password and autofill features are turned off.
 
+**When an account does not get into the game**
+
+- **The game's own login.** If the game restores a login from its session cookie, the bridge enters the character without typing the saved login, so the Log has no "typing the saved login" line for that window. The Log says "in the game as …" whenever an account reaches the world, either way.
+- **Settings sent again.** While the page reports that automatic login has not started, the app sends the account's login settings again every 15 seconds.
+- **One reload.** If the account is still outside the world 3 minutes after the window started, and the page never reached the login form or the game stayed busy (for example at `authenticating`), the app reloads that window's page once and gives the new page another 3 minutes.
+- **Not logged in.** After that, or after 3 minutes in any other case, **Status** says "Not logged in" with the reason, and the Log says it once: "auto login off", "no saved login", "auto login stopped", "choose a character", "the game stayed at authenticating", "login did not finish" or "login screen not found". The time counts from the window's start or from the moment the character left the world.
+
 ### Frame rate and CPU
 
 - **Frame rate limit.** The game draws on every animation frame, which is the monitor's refresh rate. On a 200 Hz monitor that is 200 frames a second in every window. **View → Frame rate limit** caps this, and the default is **60 FPS**. Measured on the title screen at 200 Hz, one window used 134% of one core without the limit and 58% with 60 FPS. A change applies to open windows at once.
@@ -177,6 +187,16 @@ Each game window keeps a WebGPU device on the graphics card, about 0.8 GB per wi
 - **Reload, then restart.** If all tries fail, the app reloads the page once. If that fails too, it closes the window and opens it again with the same profile and saved login ("Restarted after renderer failure"). If the renderer still cannot start, the row says "Renderer failed, use Reload". **View → Restart a window when its renderer cannot start** turns the restart off; it is on by default. Reaching the game world starts these steps over.
 - **After a recovery** the window logs in again with its saved login, as after any reload. The bot resumes hunting through its own auto-start, so turn that on for accounts that should continue by themselves.
 - **Start one at a time.** Accounts started together, with **Start** several times or with `--start`, open one at a time, 15 seconds apart. While an account waits, its row says "Starts in N s".
+
+### A window that stops responding
+
+Every account has its own page process, so a page that hangs or crashes affects only its own window. The app never closes or restarts other windows because of it. Closing every window is always the player's own **Close all** or quitting the app.
+
+- **Wait.** When the browser reports the page as not responding, the Log says so and **Status** shows "Not responding for N s, waiting". A page that sends its status again within 60 seconds is left alone, and the Log says "the page responds again".
+- **Reload that window.** After 60 seconds without a status from the page, or at once when the page process has ended ("Page crashed, reloading"), the app reloads that window's page.
+- **Restart that window.** If the page still sends nothing for 90 seconds, the app closes that window and opens it again with the same profile and saved login, through the start queue.
+- **Give up.** If that does not help within another 90 seconds, the row says "Not responding, use Reload".
+- A page that is still loading and has never sent a status is not reloaded for being quiet. Reaching the game world starts these steps over.
 
 ## How it works
 

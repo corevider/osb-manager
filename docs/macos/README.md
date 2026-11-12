@@ -119,6 +119,7 @@ One Swift package, `macos/OsbManager/`:
 | `OsbManagerApp` | AppKit: main window, game windows, menus, dialogs. Talks to the browser only through `GameBrowser`. |
 | `OsbManager` | The app executable. |
 | `OsbManagerE2E` | The test driver executable (not part of the installed app). |
+| `OsbManagerShots` | Renders the website screenshots of the main window from a fixture (not part of the installed app; see [SCREENSHOTS.md](../SCREENSHOTS.md)). |
 
 The helper process is one C++ binary (`Helper/helper_main.cc` and `SroCefApp.cc`) built with `clang++` and copied into five helper apps (plain, Alerts, GPU, Plugin, Renderer). The bundle is about 330 MB: the CEF framework is 326 MB.
 
@@ -148,12 +149,13 @@ sh macos/scripts/test.sh
 | `cef-fetch.sh`, `cef-wrapper.sh` | CEF download and wrapper library, once. |
 | `deploy.sh` | Copies the sources to `~/sro/t008` and builds both bundles there (`VARIANT=app`, `e2e` or `both`). |
 | `test.sh` | `swift test` for every test target on the Mac (`SRO_BASE`, `TEST_LOG`). The package needs `CEF_ROOT` to compile; the script sets it. |
+| `shots.sh <folder>` | Builds `OsbManagerShots` on the Mac, renders the main window screenshots from the fixture and copies them into `<folder>` ([SCREENSHOTS.md](../SCREENSHOTS.md)). |
 | `run-e2e.sh <tag> --scenario <name> …` | Runs the test app on the Mac with an own data folder and output folder, waits for it and lists the processes before and after. |
 | `measure-remote.sh <seconds> [pattern]` | CPU and memory per process role of a running app, from `ps`. |
 | `tables.py <folder>` | Markdown CPU and memory tables from a `measure-summary.json`. |
 | `install.sh`, `install-remote.sh`, `build-app.sh` | The installer described above and the bundle build it uses. |
 
-Test scenarios of `OsbManagerE2E` (`--scenario`): `full` (default: two accounts, start queue, title screen, userscript, frame limit, light, mute, hidden and minimised windows, window placement, account removal), `login`, `stats`, `measure`, `persist` (`--phase seed|check|remove`), `retention` (`--phase seed|check`, around an update), `about`, `scriptupdate` (installs OSB 2.0.1 from its public GitHub release, presses **Update** in the Scripts tab and checks that the app stays up and the table shows the newer version; no game window). They use made-up accounts, random passwords, a test bundle id and Keychain service, and never log in to the game. Run them only with the screen unlocked.
+Test scenarios of `OsbManagerE2E` (`--scenario`): `full` (default: two accounts, start queue, title screen, userscript, frame limit, light, mute, hidden and minimised windows, window placement, account removal), `login`, `stats`, `measure`, `persist` (`--phase seed|check|remove`), `retention` (`--phase seed|check`, around an update), `about`, `scriptupdate` (installs OSB 2.0.1 from its public GitHub release, presses **Update** in the Scripts tab and checks that the app stays up and the table shows the newer version; no game window). `osbrun` (with `--osb-url` pointing at a loopback server: first-start install, the account menus built from right-click events on the list, the Status tab and the Stats tab, then an update and an offline streak, with screenshots; `--phase menus` stops after the menus; no game window). They use made-up accounts, random passwords, a test bundle id and Keychain service, and never log in to the game. Run them only with the screen unlocked.
 
 ## Usage statistics and reports
 
@@ -167,7 +169,7 @@ Opt-in only, off by default, with a first-run panel in the main window, **Privac
 | --- | --- |
 | `accounts.json` | A list, in list order. Each account: `id`, `name`, `startLight`, `window` (`x`, `y`, `width`, `height`, `maximized`), `dataStoreId` (the UUID that names its browser profile folder), and the login settings `loginId`, `server`, `character`, `autoLogin`. The password is never in this file. Entries with a bad id, a bad or duplicate name, a duplicate id or data store, or an unreadable field are dropped when the file loads. A file that is not JSON is moved to `accounts.invalid-<time>.json` and the app starts empty. |
 | `sox.json` | The SoX drop list: at most 1000 entries, with the Windows field names. |
-| `settings.json` | `frameLimit` (30, 60, 120 or 0 for no limit; default 60) `shareGameFiles` (the shared pack cache; **on** when the key is missing, an explicit value is kept) and `checkForUpdates` (on when missing). |
+| `settings.json` | `frameLimit` (30, 60, 120 or 0 for no limit; default 60) `shareGameFiles` (the shared pack cache; **on** when the key is missing, an explicit value is kept), `checkForUpdates` (on when missing) and `osbFirstInstall` (`pending`, `done` or `skipped`; see [OSB on the first start](#osb-on-the-first-start)) and `updateOsbAutomatically` (on when missing; see [OSB updates by itself](#osb-updates-by-itself)). |
 | `scripts/` | `scripts.json` (`id`, `enabled`, `sourceUrl`) and one `<id>.user.js` per installed userscript. |
 | `cef/` | CEF's root cache: one folder per account named after its `dataStoreId` (lower case), plus CEF's own files. |
 | `logs/` | `app-yyyyMMdd.log`, one per day, and `cef.log`. |
@@ -188,6 +190,58 @@ Window positions use the macOS screen coordinates (origin at the bottom left). R
 - **Userscripts.** Add from a URL (https only) or a file. They run at document start in the main frame, after the bridge, through the same Tampermonkey-style wrapper as the Windows app (`@match`, `@include`, `@exclude`, `@run-at`, `@noframes`, `GM_info`, `GM_addStyle`, `GM_getValue`, `GM_setValue`, `GM_deleteValue`, `GM_listValues` and the `GM.*` forms). `GM_addStyle` waits for the page's root element when the script runs before it exists. A change applies when a game window reloads (**Scripts → Reload open game windows**).
 - **Window handling.** Position, size and maximised state are saved per account and restored. Closing a window with a character in the game asks first. Zoom and minimise work; the page follows the window size.
 
+## Launch options
+
+| Option | What it does |
+|---|---|
+| `--data <folder>` | Use this data folder instead of `~/Library/Application Support/OSB Manager/`. |
+| `--start <account>[,<account>...]` | Start these accounts (added when the name is new) after the window shows. |
+| `--light` | Start the `--start` accounts in light mode. |
+| `--osb-url <address>` | The address of the first-start OSB install, of the automatic OSB update (with `osb.meta.js` next to it) and of the **Add from URL…** suggestion. An `http://` address is accepted only on the loopback interface (`127.0.0.1`, `localhost`, `::1`) and only with this option. It exists for tests with a local fake server, and it makes the update checks run 3 seconds after the start and then every 15 seconds. Without it, only the fixed `https` address in the `corevider/osb` repository is used. |
+
+## OSB on the first start
+
+`OsbFirstInstall` (`OsbManagerCore`) installs OSB once, on the first start with a new data folder. `settings.json` holds the state in `osbFirstInstall`:
+
+| Value | Meaning |
+|---|---|
+| `pending` | Set when no `settings.json` existed at that start. OSB is still to be installed. Loading does not create the file. |
+| `done` | OSB was installed. It is never installed again, even when the user turns it off or removes it. |
+| `skipped` | The value for a `settings.json` from an older version or one that does not parse, so existing users are not changed. Also stored when a bot script (OSB or the previous bot) is already installed. |
+
+- After the main window shows, `OsbController` downloads OSB in a `Task` with `ScriptStore.install(fromUrl:)`, the same checks as **Add from URL…**: `https` only, and `http` only on the loopback interface with `--osb-url`. The start is not slower. The script is installed turned on, with no dialog. The Log gets `Installed OSB <version>. You can turn it off or remove it on the Scripts tab.`, plus ` Reload the game windows to apply it.` when game windows are open.
+- While it runs, the **Scripts** tab shows `Installing OSB…`.
+- When the download fails, the Log gets one warning, `Could not install OSB on the first start (<reason>). It will try again at the next start.`, the tab shows `Could not install OSB. It will try again at the next start, or add it with Add from URL.`, and the state stays `pending`. The next start tries again. Once a bot script has been installed by hand, the next start stores `skipped` and makes no request.
+- OSB is recognised by `BotScripts.isOsb`: its namespace is `https://github.com/corevider/osb` or its source address is an `https` address in the `corevider/osb` repository.
+
+## OSB updates by itself
+
+`OsbAutoUpdate` (`OsbManagerCore`) keeps the OSB script current. **Scripts → Update OSB automatically** is a check item, on by default, saved as `updateOsbAutomatically` in `settings.json`. With it off, the app makes no request.
+
+- **What it updates:** only the OSB script, and only when its `@updateURL` and `@downloadURL` are `https` addresses in the `corevider/osb` repository. Other userscripts are never updated by themselves; **Scripts → Update** works as before.
+- **When:** the first check runs one minute after the first-start install has finished (or was not due), then every 6 hours while the app runs. A check never runs while another check, a manual **Update**, **Add from URL…** or the first-start install runs: `ScriptJobs` counts those jobs, and a busy check tries again after a minute. With the setting off, a tick makes no request and the next one comes after the full 6 hours.
+- **How:** it reads the small `@updateURL` file (at most 256 KB) and compares its `@version` with the installed one as numbers (`2.0.10` is newer than `2.0.9`; a version must be `major.minor.patch`). Only a newer version is downloaded from the `@downloadURL`. Before it is saved, `ScriptStore.install(fromUrl:accept:)` checks that the name and namespace are OSB's, that the version equals or exceeds the announced one, and that OSB is still installed. A wrong file is never installed, so an older version cannot replace the installed one and no second script with another namespace appears. The script keeps its on or off state.
+- **Game windows:** never reloaded by themselves, because a reload interrupts the bot. The Log gets `Updated OSB from <old> to <new>. Reload the game windows to apply it.` Windows opened later load the new version.
+- **Failures:** offline, an HTTP error, a file that does not parse, or a wrong namespace or version show no dialog and leave the installed script unchanged. The Log gets one warning for each failing streak, `Could not check for an OSB update (<message>). It will try again later.`, and the next check tries again. There are no new usage statistics or diagnostics fields.
+
+## The account context menu
+
+Right-click (or Control-click) an account in the list, or a row of the **Status** tab, for a menu that fits the account's state. The **Stats** tab has no menu.
+
+| State | Items |
+|---|---|
+| Closed | Start, Start light, Toggle light mode, Move up, Move down, Remove… |
+| Waiting in the start queue | Cancel start, Start, Start light, Toggle light mode, Move up, Move down, Remove… |
+| Open | Show window, Reload window, Close, Toggle light mode, Move up, Move down, Remove… |
+| Empty part of the account list | Add…, Start all, Start all light, Close all |
+
+- A right-click on a list row selects it. A right-click on a Status row opens the menu of that row's account and does not change the selection.
+- Each item acts on the account the menu was opened for, not on the selection. The prompts are the existing ones (**Remove…** asks first, **Close** asks when the character is in the game).
+- **Toggle light mode** on an open window switches that window. On a closed or queued account it flips the saved **Start in light mode** setting and logs `<name>: starts in light mode.` or `<name>: starts with rendering on.`. A queued start keeps the light flag it was queued with.
+- **Cancel start** removes the account from the start queue and logs `<name>: start cancelled.`.
+- **Remove…** stays enabled for an open account: the app already closes its window first, as the **Accounts → Remove…** item does.
+- `AccountMenu` (`OsbManagerCore`) builds the items from the account and its state and needs no window. `MainWindowController` turns them into an `NSMenu` in one place, for the list and the Status tab.
+
 ## Automatic login
 
 With **Log in automatically** on, the page bridge goes through the game's own login screen as a player would (the page side is the shared `autologin.js`, unchanged). The app supplies the settings and the password.
@@ -196,6 +250,8 @@ With **Log in automatically** on, the page bridge goes through the game's own lo
 - **Where the password is.** In your macOS login Keychain, as a generic password: service = the app's bundle identifier, account = the account's `id`, accessible only while the Mac is unlocked and only on this Mac. It is never written to `accounts.json`, `settings.json` or the logs.
 - **When it is sent.** The app sends the page `auto-login` (enabled only with automatic login on, a login ID and a saved password) whenever the game page loads and whenever you save the account. The page asks for the password only when it reaches the login form. The app answers only if the request came from the main frame of `https://opensro.online` and the window still shows that page, gives at most 3 passwords per window in 10 minutes and at least 15 seconds apart, reads the Keychain off the main thread, and sends the message through the browser's own message channel. Any refusal sends the page a reason.
 - **Removing it.** **Forget password**, removing the account, or Keychain Access.
+- **When an account does not get into the game.** The same rules as on Windows (see the main README, *Automatic login*): the settings are sent again every 15 seconds while the page reports that automatic login has not started; a page that never reached the login form, or where the game stayed busy, is reloaded once after 3 minutes; after that **Status** says "Not logged in" with the reason, and the Log says it once. The Log says "in the game as …" when an account reaches the world.
+- **A window that stops responding.** Each account has its own renderer process, and the app only ever recovers the window concerned: after 60 seconds without a status from a page that had reported, or at once when its renderer process ended, it reloads that page; after 90 more seconds without a status it restarts that window with the same profile; then the row says "Not responding, use Reload". CEF's own unresponsive callback is not used: the missing status is the signal.
 
 ## The shared game file cache
 

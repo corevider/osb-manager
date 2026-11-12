@@ -80,3 +80,7 @@ The update manifests are signed with an ECDSA P-256 key. Only its public half is
 3. Keep the key file out of every repository, synced folder and shared backup. Keep one offline copy (for example on a USB stick in a drawer): without the key no update can be signed.
 
 **Rotating the key.** Make a new key, ship a release whose apps hold both the old and the new public key (two are allowed), sign that release with the old key, and sign later releases with the new one. Once most installs have updated, remove the old public key in a later release. If the key is lost or leaks, remove its public key at once and publish a release signed with the new key; installs that only know the leaked key need a manual download.
+
+## Website screenshots
+
+The Windows screenshots on the website are rendered from a fixture file with made-up accounts; see [SCREENSHOTS.md](SCREENSHOTS.md).

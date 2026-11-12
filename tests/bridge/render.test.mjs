@@ -7,6 +7,7 @@ const load = (file, name) => vm.runInNewContext(readFileSync(new URL('../../src/
 const createLightControl = load('light.js', 'createLightControl');
 const installDeviceRetry = load('gpu.js', 'installDeviceRetry');
 const createGpuSlots = load('gpu.js', 'createGpuSlots');
+const gpuVendor = load('gpu.js', 'gpuVendor');
 
 const lightSetup = ({ bot = true } = {}) => {
   const page = { allowed: false, own: [], bot: [] };
@@ -190,4 +191,39 @@ test('nothing changes without WebGPU', () => {
   const original = Adapter.prototype.requestDevice;
   installDeviceRetry({ gpu: undefined, Adapter, wait: async () => {} });
   assert.equal(Adapter.prototype.requestDevice, original);
+});
+
+test('the adapter vendor maps to a fixed list and nothing else', () => {
+  const cases = [
+    ['nvidia', 'nvidia'], ['NVIDIA Corporation', 'nvidia'], ['0x10de', 'nvidia'],
+    ['amd', 'amd'], ['Advanced Micro Devices, Inc.', 'amd'], ['ati', 'amd'], ['0x1002', 'amd'],
+    ['intel', 'intel'], ['Intel(R) Corporation', 'intel'], ['0x8086', 'intel'],
+    ['apple', 'apple'], ['qualcomm', 'qualcomm'],
+    ['microsoft', 'other'], ['google', 'other'], ['arm', 'other'], ['ExampleCanaryVendor', 'other'],
+    ['', 'unknown'], ['   ', 'unknown'], [undefined, 'unknown'], [42, 'unknown'],
+  ];
+  for (const [vendor, expected] of cases) assert.equal(gpuVendor({ info: { vendor, device: 'Canary GPU 9000', architecture: 'canary', description: 'Canary driver 1.2.3' } }), expected, String(vendor));
+  assert.equal(gpuVendor({}), 'unknown');
+  assert.equal(gpuVendor(null), 'unknown');
+  assert.equal(gpuVendor({ get info() { throw new Error('blocked'); } }), 'unknown');
+});
+
+test('the vendor is read once from the adapter the game uses and reported as the enum only', async () => {
+  let reads = 0;
+  class Adapter {
+    get info() { reads++; return { vendor: 'NVIDIA', device: 'Canary GPU 9000', description: 'Canary driver 1.2.3' }; }
+    async requestDevice() { return { device: 1 }; }
+  }
+  const report = installDeviceRetry({ gpu: { requestAdapter: async () => new Adapter() }, Adapter, wait: async () => {} });
+  assert.equal(report.vendor, null, 'nothing is read before the game asks for a device');
+  await new Adapter().requestDevice({});
+  await new Adapter().requestDevice({});
+  assert.equal(report.vendor, 'nvidia');
+  assert.equal(reads, 1);
+  assert.doesNotMatch(JSON.stringify(report), /Canary/);
+});
+
+test('the status message carries the vendor in the existing gpu object', () => {
+  const source = readFileSync(new URL('../../src/OsbManager/Browser/bridge.js', import.meta.url), 'utf8');
+  assert.match(source, /gpu: \{ retries: gpuReport\.retries, limit: gpuReport\.limit, failed: gpuReport\.failed \|\| null, retryIn: gpuReport\.retryIn\(\), vendor: gpuReport\.vendor \}/);
 });

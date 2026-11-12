@@ -82,9 +82,15 @@ public sealed class TelemetryClient : IDisposable
         SendAsync(() => Json(HttpMethod.Put, "installs/me/consent", new { usage_version = TelemetryLimits.ConsentVersion, characters }, credentials), background, ct);
 
     public Task<ApiResponse> SendTelemetryAsync(InstallCredentials credentials, byte[] body, CancellationToken ct) =>
+        SendBodyAsync("telemetry", credentials, body, ct);
+
+    public Task<ApiResponse> SendDiagnosticsAsync(InstallCredentials credentials, byte[] body, CancellationToken ct) =>
+        SendBodyAsync("diagnostics", credentials, body, ct);
+
+    private Task<ApiResponse> SendBodyAsync(string relative, InstallCredentials credentials, byte[] body, CancellationToken ct) =>
         SendAsync(() =>
         {
-            var request = Authorized(HttpMethod.Post, "telemetry", credentials);
+            var request = Authorized(HttpMethod.Post, relative, credentials);
             request.Content = new ByteArrayContent(body);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             return request;

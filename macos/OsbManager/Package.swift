@@ -51,6 +51,11 @@ let allTargets: [Target] = [
         dependencies: ["OsbManagerApp", "OsbManagerCore", "OsbManagerCef", "CefBridge"],
         swiftSettings: [.swiftLanguageMode(.v5)]
     ),
+    .executableTarget(
+        name: "OsbManagerShots",
+        dependencies: ["OsbManagerApp", "OsbManagerCore"],
+        swiftSettings: [.swiftLanguageMode(.v5)]
+    ),
     .testTarget(
         name: "OsbManagerCoreTests",
         dependencies: ["OsbManagerCore"],

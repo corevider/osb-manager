@@ -14,7 +14,7 @@ public class GoldenPayloadTests
           "app_version": "2.0.4",
           "os": "windows",
           "locale": "en",
-          "consent": { "usage_version": 1, "characters": false }
+          "consent": { "usage_version": 2, "characters": false }
         }
         """;
 
@@ -120,7 +120,7 @@ public class GoldenPayloadTests
         Assert.Equal("manager-win", (string)body["app"]!);
         Assert.Equal("windows", (string)body["os"]!);
         Assert.Equal(43, ((string)body["install_key"]!).Length);
-        Assert.Equal(1, (int)body["consent"]!["usage_version"]!);
+        Assert.Equal(2, (int)body["consent"]!["usage_version"]!);
         Assert.True(Guid.TryParseExact((string)body["install_id"]!, "D", out var id) && id.ToString()[14] == '4');
     }
 

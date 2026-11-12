@@ -1,7 +1,7 @@
 import Foundation
 
 public struct LaunchOptions: Equatable {
-    public static let usage = "OsbManager [--data <folder>] [--start <account>[,<account>...]] [--light]"
+    public static let usage = "OsbManager [--data <folder>] [--start <account>[,<account>...]] [--light] [--osb-url <address>]"
 
     public var dataRoot: URL?
     public var start: [String] = []
@@ -13,6 +13,7 @@ public struct LaunchOptions: Equatable {
     public var dialogShots: URL?
     public var interfaceLanguage: String?
     public var updatedFrom: Int32?
+    public var osbUrl: String?
 
     public init() {}
 
@@ -38,6 +39,12 @@ public struct LaunchOptions: Equatable {
                     .filter { !$0.isEmpty }
             case "--light":
                 options.startLight = true
+            case "--osb-url":
+                let address = try value(for: argument)
+                guard let url = URL(string: address), url.scheme != nil, url.host != nil else {
+                    throw LaunchOptionsError("--osb-url needs an address.")
+                }
+                options.osbUrl = address
             case UpdateRelaunch.option:
                 let text = try value(for: argument)
                 guard text.allSatisfy({ $0.isASCII && $0.isNumber }), let pid = Int32(text), pid > 0 else {

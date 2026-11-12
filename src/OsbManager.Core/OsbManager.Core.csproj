@@ -11,4 +11,8 @@
     <InternalsVisibleTo Include="OsbManager.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Telemetry\Diagnostics\diagnostics-vocabulary.json" LogicalName="OsbManager.Core.diagnostics-vocabulary.json" />
+  </ItemGroup>
+
 </Project>

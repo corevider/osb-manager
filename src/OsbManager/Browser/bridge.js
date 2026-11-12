@@ -152,7 +152,7 @@
       light: lightState(),
       lightWaiting: light.waiting(),
       linked: !!sim.post,
-      gpu: { retries: gpuReport.retries, limit: gpuReport.limit, failed: gpuReport.failed || null, retryIn: gpuReport.retryIn() },
+      gpu: { retries: gpuReport.retries, limit: gpuReport.limit, failed: gpuReport.failed || null, retryIn: gpuReport.retryIn(), vendor: gpuReport.vendor },
       login: autoLogin.status(),
       session: stats?.session ? {
         ms: number(stats.session.ms),

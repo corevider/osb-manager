@@ -251,7 +251,7 @@ struct ScriptStoreTests {
     private struct FakeDownloader: ScriptDownloading {
         let text: String
 
-        func download(_ url: URL) async throws -> String { text }
+        func download(_ url: URL, maxBytes: Int) async throws -> String { text }
     }
 
     @Test func installsReplacesByNameAndReloads() throws {

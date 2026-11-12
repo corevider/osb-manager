@@ -9,12 +9,12 @@ public class ConsentTextVersionTests
 {
     private const string OldIdentityId = "3f0b2c1e-7d4a-4c55-9a51-2b8f7e4c9d10";
 
-    private static string PrivacyFileWith(string? textId, bool registered = false)
+    private static string PrivacyFileWith(string? textId, bool registered = false, int version = 2)
     {
         var sealedKey = new InstallKeyProtector().Protect(PrivacyStore.NewInstallKey());
         var file = new JsonObject
         {
-            ["usageConsentVersion"] = 1,
+            ["usageConsentVersion"] = version,
             ["usageConsentedAt"] = "2026-10-01T10:00:00+00:00",
             ["decision"] = "Granted",
             ["installId"] = OldIdentityId,
@@ -42,15 +42,16 @@ public class ConsentTextVersionTests
 
         var state = store.Grant(characters: false);
 
-        Assert.Equal("2026-11-04.1", TelemetryLimits.ConsentTextId);
-        Assert.Equal(1, TelemetryLimits.ConsentVersion);
+        Assert.Equal("2026-11-12.1", TelemetryLimits.ConsentTextId);
+        Assert.Equal(2, TelemetryLimits.ConsentVersion);
         Assert.Equal(TelemetryLimits.ConsentTextId, state.UsageConsentTextId);
+        Assert.Equal(2, state.UsageConsentVersion);
         var text = File.ReadAllText(directory.File("privacy.json"));
         Assert.Contains("usageConsentTextId", text);
-        Assert.Contains("2026-11-04.1", text);
+        Assert.Contains("2026-11-12.1", text);
         var reloaded = PrivacyStore.Load(directory.File("privacy.json"), new InstallKeyProtector(), new FakeTimeProvider()).State;
         Assert.True(reloaded.Granted);
-        Assert.Equal("2026-11-04.1", reloaded.UsageConsentTextId);
+        Assert.Equal("2026-11-12.1", reloaded.UsageConsentTextId);
     }
 
     [Theory]
@@ -59,6 +60,8 @@ public class ConsentTextVersionTests
     [InlineData("2026-10-31.9")]
     [InlineData("2026-11-03.1")]
     [InlineData("2026-11-04.0")]
+    [InlineData("2026-11-04.1")]
+    [InlineData("2026-11-12.0")]
     public void AConsentGivenToAnOlderOrUnknownTextCountsAsNoConsent(string? storedTextId)
     {
         using var directory = new TempDirectory();
@@ -73,8 +76,8 @@ public class ConsentTextVersionTests
     }
 
     [Theory]
-    [InlineData("2026-11-04.1")]
-    [InlineData("2026-11-04.2")]
+    [InlineData("2026-11-12.1")]
+    [InlineData("2026-11-12.2")]
     [InlineData("2027-02-01.1")]
     public void AConsentGivenToTheCurrentOrANewerTextStaysValid(string storedTextId)
     {

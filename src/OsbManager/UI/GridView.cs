@@ -67,6 +67,24 @@ internal sealed class GridView : ListView
         }
     }
 
+    protected override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+        if (boldFont is not { } previous)
+        {
+            return;
+        }
+        boldFont = new Font(Font, FontStyle.Bold);
+        foreach (ListViewItem item in Items)
+        {
+            if (ReferenceEquals(item.Font, previous))
+            {
+                item.Font = boldFont;
+            }
+        }
+        previous.Dispose();
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)

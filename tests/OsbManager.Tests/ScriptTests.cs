@@ -115,6 +115,19 @@ public class ScriptInjectionTests
         Assert.Contains(System.Text.Json.JsonSerializer.Serialize(UrlPattern.FromMatch("https://opensro.online/play*")), injection);
         Assert.EndsWith("})();\n", injection);
     }
+
+    [Fact]
+    public void NamesTheScriptSoItsStackFramesAreNotAnonymous()
+    {
+        var bot = ScriptInjection.Build(UserScriptMeta.Parse(UserScriptMetaTests.BotHeader), UserScriptMetaTests.BotHeader);
+        var osb = ScriptInjection.Build(UserScriptMeta.Parse(UserScriptMetaTests.BotHeader.Replace("nixxane bot", "OSB")), "");
+        var hostile = ScriptInjection.Build(UserScriptMeta.Parse(UserScriptMetaTests.BotHeader.Replace("nixxane bot", "Evil */ alert(1) // x")), "");
+
+        Assert.StartsWith("(() => {\n//# sourceURL=osb-manager-script/nixxane-bot.user.js\n", bot);
+        Assert.Contains("\n//# sourceURL=osb-manager-script/OSB.user.js\n", osb);
+        var line = hostile.Split('\n')[1];
+        Assert.Equal("//# sourceURL=osb-manager-script/Evil----alert-1-----x.user.js", line);
+    }
 }
 
 public class ScriptStoreTests

@@ -23,6 +23,9 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     private let services: AppServices
     private let gate = CredentialGate()
     private let recovery: RendererRecovery
+    private let health: PageHealth
+    private let login = LoginWatch()
+    private var hasSavedLogin = false
     private var lastStatus: BotStatus?
     private var statusAt = Date.distantPast
     private var everReported = false
@@ -31,9 +34,10 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     private var closing = false
     private var closed = false
 
-    public init(services: AppServices, account: Account, light: Bool, cascadeIndex: Int, recovery: RendererRecovery = RendererRecovery()) {
+    public init(services: AppServices, account: Account, light: Bool, cascadeIndex: Int, recovery: RendererRecovery = RendererRecovery(), health: PageHealth = PageHealth()) {
         self.services = services
         self.recovery = recovery
+        self.health = health
         self.accountId = account.id
         self.light = light
         window = NSWindow(contentRect: NSRect(origin: .zero, size: WindowPlacementPolicy.defaultSize), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -64,8 +68,10 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
 
     public var isHidden: Bool { !window.isVisible && !window.isMiniaturized }
 
+    public var isMinimised: Bool { window.isMiniaturized }
+
     public var visibilityText: String {
-        window.isMiniaturized ? "minimised" : isHidden ? "hidden" : "visible"
+        GameWindowState.visibility(hidden: isHidden, minimised: isMinimised)
     }
 
     public var browserMuted: Bool { browser?.isMuted ?? false }
@@ -76,12 +82,31 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     }
 
     public var stateText: String {
-        let normal = GameWindowState.text(failure: failure, browserReady: browser?.currentUrl != nil || everReported, everReported: everReported, status: status)
-        let text = failure == nil ? recovery.stateText(status: status, waitingForSlot: services.renderers.isWaiting(accountId), normal: normal) ?? normal : normal
-        return isHidden || window.isMiniaturized ? "\(text) (\(visibilityText))" : text
+        let current = status
+        let normal = GameWindowState.text(failure: failure, browserReady: browser?.currentUrl != nil || everReported, everReported: everReported, status: current)
+        let text = failure == nil ? recoveredText(status: current, normal: normal) : normal
+        return GameWindowState.withVisibility(text, hidden: isHidden, minimised: isMinimised)
+    }
+
+    private func recoveredText(status current: BotStatus?, normal: String) -> String {
+        let account = services.accounts.account(id: accountId)
+        let withLogin = login.stateText(status: current, autoLogin: account?.autoLogin == true, hasLogin: hasLogin(account), normal: normal) ?? normal
+        let withRenderer = recovery.stateText(status: current, waitingForSlot: services.renderers.isWaiting(accountId), normal: withLogin) ?? withLogin
+        return health.stateText(normal: withRenderer, inWorld: current?.inWorld == true) ?? withRenderer
+    }
+
+    private func hasLogin(_ account: Account?) -> Bool {
+        guard let account else { return false }
+        return !account.loginId.isEmpty && hasSavedLogin
+    }
+
+    private var autoLoginWanted: Bool {
+        let account = services.accounts.account(id: accountId)
+        return account?.autoLogin == true && hasLogin(account)
     }
 
     public func start() {
+        health.pageStarted()
         let scripts: [String]
         do {
             scripts = try pageScripts()
@@ -143,6 +168,7 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     public func reloadPage() {
         failure = nil
         services.renderers.forget(accountId)
+        health.pageStarted()
         guard let browser else { return }
         do {
             browser.updateScripts(try pageScripts())
@@ -162,9 +188,15 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     }
 
     public func sendAutoLogin() {
+        sendAutoLogin(checkKeychain: true)
+    }
+
+    private func sendAutoLogin(checkKeychain: Bool) {
         guard let account = services.accounts.account(id: accountId) else { return }
-        let saved = (try? services.credentials.exists(accountId: accountId)) ?? false
-        send(CredentialResponder.autoLoginMessage(account: account, hasPassword: saved))
+        if checkKeychain {
+            hasSavedLogin = (try? services.credentials.exists(accountId: accountId)) ?? false
+        }
+        send(CredentialResponder.autoLoginMessage(account: account, hasPassword: hasSavedLogin))
     }
 
     public func evaluate(_ code: String) async -> String? {
@@ -267,8 +299,8 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
 
     public func gameBrowser(_ browser: GameBrowser, rendererDidTerminate reason: String) {
         services.renderers.forget(accountId)
-        failure = "Page crashed, use Reload"
-        services.log.error("\(accountName): \(failure ?? "") (the page process ended: \(reason)).")
+        health.markCrashed()
+        services.log.error("\(accountName): the page process ended (\(reason)).")
     }
 
     public func gameBrowser(_ browser: GameBrowser, wantsToOpen url: URL) {
@@ -332,6 +364,12 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
         }
         logRenderer(report, before: before)
         let step = recovery.observe(previous: before, report: report, restartAllowed: services.settings.restartAfterRendererFailure)
+        if health.reported(inWorld: report.inWorld) {
+            services.log.info(PageTexts.responding(account: accountName))
+        }
+        if report.inWorld, before?.inWorld != true {
+            services.log.info(LoginTexts.inWorld(account: accountName, character: report.character))
+        }
         if let character = report.character {
             services.characters[accountId] = character
         }
@@ -357,6 +395,43 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
         window.title = title(character: report.character)
         onStatus?(self)
         recover(step)
+        watchLogin(report)
+    }
+
+    private func watchLogin(_ report: BotStatus) {
+        let account = services.accounts.account(id: accountId)
+        let why = login.reason(status: report, autoLogin: account?.autoLogin == true, hasLogin: hasLogin(account))
+        switch login.observe(report, autoLogin: autoLoginWanted) {
+        case .sendSettings:
+            sendAutoLogin(checkKeychain: false)
+        case .reload:
+            services.log.warn(LoginTexts.reloading(account: accountName, reason: why))
+            reloadPage()
+        case .none:
+            break
+        }
+        if login.takeWarning(report) {
+            services.log.warn(LoginTexts.warning(account: accountName, reason: why))
+        }
+    }
+
+    public func watchPage() {
+        guard !closing, !closed else { return }
+        let step = health.tick()
+        guard step != .none else { return }
+        let line = PageTexts.step(account: accountName, step: step, problem: health.lastProblem)
+        switch step {
+        case .reload:
+            services.log.warn(line)
+            reloadPage()
+        case .restart:
+            services.log.warn(line)
+            onRestartRequested?(self)
+        case .giveUp:
+            services.log.error(line)
+        case .none:
+            break
+        }
     }
 
     private func logRenderer(_ report: BotStatus, before: BotStatus?) {

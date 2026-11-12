@@ -40,6 +40,8 @@ public sealed record PrivacyState(
     public bool Granted => Status == ConsentStatus.Granted;
 
     public bool NeedsAnswer => Status is ConsentStatus.Undecided or ConsentStatus.Outdated;
+
+    public bool SharedBefore => Status == ConsentStatus.Outdated;
 }
 
 public sealed record WithdrawResult(InstallCredentials? Credentials, bool WasRegistered);

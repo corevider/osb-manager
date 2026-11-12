@@ -31,6 +31,8 @@ internal static class TelemetryTestSwitches
 
     public static bool ConsentOnAtStart { get; } = Environment.GetEnvironmentVariable("OSBMANAGER_TEST_CONSENT") == "1";
 
+    public static int? WithdrawAfterSeconds { get; } = int.TryParse(Environment.GetEnvironmentVariable("OSBMANAGER_TEST_WITHDRAW_AFTER"), out var seconds) && seconds > 0 ? seconds : null;
+
     public static string? LatencyLog { get; } = Environment.GetEnvironmentVariable("OSBMANAGER_TEST_LATENCY_LOG");
 
     public static string? DialogShots { get; } = Environment.GetEnvironmentVariable("OSBMANAGER_TEST_DIALOG_SHOTS");

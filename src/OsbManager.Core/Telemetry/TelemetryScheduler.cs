@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OsbManager.Core.Telemetry.Diagnostics;
 
 namespace OsbManager.Core.Telemetry;
 
@@ -20,20 +21,25 @@ public sealed class TelemetryScheduler : IDisposable
     private readonly TimeProvider time;
     private readonly Func<double> random;
     private readonly Action<string> log;
+    private readonly DiagnosticsHub? hub;
+    private readonly DiagnosticsUploader? diagnostics;
+    private readonly JobState usage = new("Usage statistics");
+    private readonly JobState reports = new("Error reports and performance data");
     private readonly SemaphoreSlim wake = new(0);
     private readonly object interruptSync = new();
     private CancellationTokenSource? loopSource;
     private CancellationTokenSource? interrupt;
     private Task? loop;
     private DateTimeOffset? nextDue;
+    private DateTimeOffset? diagnosticsDue;
     private DateTimeOffset configDueAt;
-    private DateTimeOffset pausedUntil;
-    private DateTimeOffset lastLogAt = DateTimeOffset.MinValue;
-    private bool featureOff;
+    private DateTimeOffset registrationPausedUntil;
     private bool stoppedByServer;
+    private bool diagnosticsStopped;
     private int seenEpoch = -1;
-    private int failures;
     private int unauthorized;
+    private int diagnosticsUnauthorized;
+    private int diagnosticsForbidden;
     private int unexpected;
     private long waitsEntered;
 
@@ -46,7 +52,9 @@ public sealed class TelemetryScheduler : IDisposable
         string locale,
         TimeProvider time,
         Func<double> random,
-        Action<string> log)
+        Action<string> log,
+        DiagnosticsHub? hub = null,
+        DiagnosticsUploader? diagnostics = null)
     {
         this.store = store;
         this.client = client;
@@ -57,6 +65,8 @@ public sealed class TelemetryScheduler : IDisposable
         this.time = time;
         this.random = random;
         this.log = log;
+        this.hub = hub;
+        this.diagnostics = diagnostics;
         store.Changed += OnPrivacyChanged;
     }
 
@@ -64,7 +74,11 @@ public sealed class TelemetryScheduler : IDisposable
 
     internal long WaitsEntered => Interlocked.Read(ref waitsEntered);
 
-    internal int Failures => failures;
+    internal int Failures => usage.Failures;
+
+    internal int DiagnosticsFailures => reports.Failures;
+
+    public bool DiagnosticsStopped => diagnosticsStopped;
 
     private DateTimeOffset Now => time.GetUtcNow();
 
@@ -176,6 +190,7 @@ public sealed class TelemetryScheduler : IDisposable
                 if (!store.State.Granted)
                 {
                     nextDue = null;
+                    diagnosticsDue = null;
                     seenEpoch = -1;
                     dropTimer();
                     await wake.WaitAsync(ct).ConfigureAwait(false);
@@ -187,15 +202,24 @@ public sealed class TelemetryScheduler : IDisposable
                     seenEpoch = epoch;
                     ResetSchedule();
                     nextDue = Now + Backoff.StartDelay(random());
+                    diagnosticsDue = nextDue;
                 }
                 using var source = NewInterrupt(ct);
-                await WaitUntilAsync(timerFactory(), nextDue.Value, source.Token).ConfigureAwait(false);
+                var due = diagnostics is not null && diagnosticsDue is { } diagnosticsAt && diagnosticsAt < nextDue.Value ? diagnosticsAt : nextDue.Value;
+                await WaitUntilAsync(timerFactory(), due, source.Token).ConfigureAwait(false);
                 if (!store.State.Granted || store.Epoch != seenEpoch)
                 {
                     continue;
                 }
-                var wait = await CycleAsync(source.Token).ConfigureAwait(false);
-                nextDue = Now + wait;
+                if (Now >= nextDue.Value)
+                {
+                    var wait = await CycleAsync(source.Token).ConfigureAwait(false);
+                    nextDue = Now + wait;
+                }
+                if (diagnostics is not null && diagnosticsDue is { } pending && Now >= pending && store.State.Granted && store.Epoch == seenEpoch)
+                {
+                    diagnosticsDue = Now + await RunDiagnosticsAsync(source.Token).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -207,7 +231,7 @@ public sealed class TelemetryScheduler : IDisposable
             catch (Exception e)
             {
                 RecordUnexpected(e);
-                nextDue = Now + Backoff.Next(++failures, random());
+                nextDue = Now + Backoff.Next(++usage.Failures, random());
             }
         }
     }
@@ -215,11 +239,14 @@ public sealed class TelemetryScheduler : IDisposable
     private void ResetSchedule()
     {
         configDueAt = DateTimeOffset.MinValue;
-        pausedUntil = DateTimeOffset.MinValue;
-        featureOff = false;
+        registrationPausedUntil = DateTimeOffset.MinValue;
+        usage.Reset();
+        reports.Reset();
         stoppedByServer = false;
-        failures = 0;
+        diagnosticsStopped = false;
         unauthorized = 0;
+        diagnosticsUnauthorized = 0;
+        diagnosticsForbidden = 0;
     }
 
     private async Task WaitUntilAsync(PeriodicTimer timer, DateTimeOffset due, CancellationToken ct)
@@ -240,7 +267,7 @@ public sealed class TelemetryScheduler : IDisposable
     private void RecordUnexpected(Exception e)
     {
         unexpected++;
-        LogLimited($"Usage statistics hit an unexpected error ({e.GetType().Name}).");
+        LogLimited(usage, $"Usage statistics hit an unexpected error ({e.GetType().Name}).");
         if (unexpected >= UnexpectedLimit && !DisabledByFailSafe)
         {
             DisabledByFailSafe = true;
@@ -248,12 +275,12 @@ public sealed class TelemetryScheduler : IDisposable
         }
     }
 
-    private void LogLimited(string message)
+    private void LogLimited(JobState job, string message)
     {
         var now = Now;
-        if (now - lastLogAt >= TimeSpan.FromHours(1))
+        if (now - job.LastLogAt >= TimeSpan.FromHours(1))
         {
-            lastLogAt = now;
+            job.LastLogAt = now;
             log(message);
         }
     }
@@ -265,6 +292,134 @@ public sealed class TelemetryScheduler : IDisposable
             ? config
             : TelemetryConfig.Disabled;
 
+    private async Task<TimeSpan> RunDiagnosticsAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await DiagnosticsCycleAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            hub?.ReportFault();
+            LogLimited(reports, $"{reports.Name} hit an unexpected error ({e.GetType().Name}).");
+            if (hub?.Faulted == true)
+            {
+                log($"{reports.Name} are switched off until {AppIdentity.Name} restarts: {DiagnosticsHub.FaultLimit} unexpected errors.");
+            }
+            return Backoff.Next(++reports.Failures, random());
+        }
+    }
+
+    private async Task<TimeSpan> DiagnosticsCycleAsync(CancellationToken ct)
+    {
+        if (diagnostics is null || hub is null)
+        {
+            return TelemetryLimits.MaxWait;
+        }
+        if (diagnosticsStopped || hub.Faulted)
+        {
+            return TelemetryLimits.MaxWait;
+        }
+        var now = Now;
+        if (reports.PausedUntil > now)
+        {
+            return reports.PausedUntil - now;
+        }
+        if (store.Credentials is not { } credentials || !hub.Recording)
+        {
+            return TelemetryLimits.MinWait;
+        }
+        var config = EffectiveConfig(store.State, now);
+        var settings = config.Diagnostics;
+        diagnostics.ApplyConfig(settings);
+        if (!config.ClientOk || !settings.Enabled || reports.FeatureOff)
+        {
+            var untilRead = configDueAt - now;
+            return untilRead < TelemetryLimits.MinWait ? TelemetryLimits.MinWait : untilRead;
+        }
+        var interval = TimeSpan.FromSeconds(settings.IntervalSeconds);
+        if (!diagnostics.HasSomethingToSend(settings))
+        {
+            return Backoff.Jitter(interval, random());
+        }
+        if (!StillGranted(credentials))
+        {
+            return TelemetryLimits.MinWait;
+        }
+        if (!store.State.Registered)
+        {
+            var registration = await RegisterAsync(credentials, reports, ct).ConfigureAwait(false);
+            if (registration.Wait is { } wait)
+            {
+                return wait;
+            }
+            credentials = registration.Credentials;
+        }
+        if (diagnostics.Prepare(settings) is not { } prepared)
+        {
+            return Backoff.Jitter(interval, random());
+        }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, prepared.Session);
+        var response = await client.SendDiagnosticsAsync(credentials, prepared.Body, linked.Token).ConfigureAwait(false);
+        return await AfterDiagnosticsAsync(response, prepared, credentials, interval, ct).ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan> AfterDiagnosticsAsync(ApiResponse response, PreparedDiagnostics prepared, InstallCredentials credentials, TimeSpan interval, CancellationToken ct)
+    {
+        if (response.Succeeded)
+        {
+            reports.Failures = 0;
+            diagnosticsUnauthorized = 0;
+            diagnostics!.Commit(prepared);
+            return Backoff.Jitter(TimeSpan.FromSeconds(Math.Max(interval.TotalSeconds, NextAfter(response.Body))), random());
+        }
+        if (response.Outcome == ApiOutcome.HttpError && response.StatusCode is 400 or 404 or 413 or 415)
+        {
+            diagnostics!.Commit(prepared);
+            LogLimited(reports, $"{reports.Name} were rejected by the server ({response.StatusCode}); they are dropped.");
+            return Backoff.Next(++reports.Failures, random());
+        }
+        diagnostics!.Return(prepared);
+        switch (response.Outcome)
+        {
+            case ApiOutcome.Busy:
+            case ApiOutcome.Cancelled:
+                return TelemetryLimits.MinWait;
+            case ApiOutcome.HttpError when response.StatusCode == 401:
+                store.MarkUnregistered(credentials.Id);
+                if (++diagnosticsUnauthorized >= 2)
+                {
+                    diagnosticsStopped = true;
+                    log($"{reports.Name} stopped: the server did not accept this install.");
+                    return TelemetryLimits.MaxWait;
+                }
+                return TelemetryLimits.MinWait;
+            case ApiOutcome.HttpError when response.StatusCode == 403 && response.Code == "consent_required":
+                return await AfterConsentRequiredAsync(credentials, interval, ct).ConfigureAwait(false);
+        }
+        return FailureWait(response, reports);
+    }
+
+    private async Task<TimeSpan> AfterConsentRequiredAsync(InstallCredentials credentials, TimeSpan interval, CancellationToken ct)
+    {
+        if (++diagnosticsForbidden >= 2)
+        {
+            diagnosticsStopped = true;
+            log($"{reports.Name} stopped: the server says consent is missing.");
+            return TelemetryLimits.MaxWait;
+        }
+        var state = store.State;
+        if (StillGranted(credentials))
+        {
+            await client.UpdateConsentAsync(credentials, state.CharactersConsent, background: true, ct).ConfigureAwait(false);
+        }
+        return Backoff.Jitter(interval, random());
+    }
+
     private async Task<TimeSpan> CycleAsync(CancellationToken ct)
     {
         var now = Now;
@@ -272,9 +427,9 @@ public sealed class TelemetryScheduler : IDisposable
         {
             return TelemetryLimits.MaxWait;
         }
-        if (pausedUntil > now)
+        if (usage.PausedUntil > now)
         {
-            return pausedUntil - now;
+            return usage.PausedUntil - now;
         }
         if (store.Credentials is not { } credentials)
         {
@@ -286,7 +441,7 @@ public sealed class TelemetryScheduler : IDisposable
             {
                 return TelemetryLimits.MinWait;
             }
-            var configWait = await ReadConfigAsync(credentials, ct).ConfigureAwait(false);
+            var configWait = await ReadConfigAsync(credentials, usage, ct).ConfigureAwait(false);
             if (configWait is { } wait)
             {
                 if (EffectiveConfig(store.State, Now) == TelemetryConfig.Disabled)
@@ -298,7 +453,7 @@ public sealed class TelemetryScheduler : IDisposable
             now = Now;
         }
         var config = EffectiveConfig(store.State, now);
-        if (!config.ClientOk || !config.TelemetryEnabled || featureOff)
+        if (!config.ClientOk || !config.TelemetryEnabled || usage.FeatureOff)
         {
             var untilRead = configDueAt - now;
             return untilRead < TelemetryLimits.MinWait ? TelemetryLimits.MinWait : untilRead;
@@ -316,7 +471,7 @@ public sealed class TelemetryScheduler : IDisposable
         }
         if (!store.State.Registered)
         {
-            var registration = await RegisterAsync(credentials, ct).ConfigureAwait(false);
+            var registration = await RegisterAsync(credentials, usage, ct).ConfigureAwait(false);
             if (registration.Wait is { } wait)
             {
                 return wait;
@@ -354,23 +509,30 @@ public sealed class TelemetryScheduler : IDisposable
         }
     }
 
-    private async Task<TimeSpan?> ReadConfigAsync(InstallCredentials credentials, CancellationToken ct)
+    private async Task<TimeSpan?> ReadConfigAsync(InstallCredentials credentials, JobState job, CancellationToken ct)
     {
         var response = await client.GetConfigAsync(appVersion, background: true, ct).ConfigureAwait(false);
         if (response.Succeeded)
         {
             var config = TelemetryConfig.TryParse(response.Body) ?? TelemetryConfig.Disabled;
             store.StoreConfig(credentials.Id, config);
+            diagnostics?.ApplyConfig(config.Diagnostics);
             configDueAt = Now + TelemetryLimits.ConfigRefresh;
-            featureOff = false;
-            failures = 0;
+            usage.FeatureOff = false;
+            reports.FeatureOff = false;
+            job.Failures = 0;
             return null;
         }
-        return FailureWait(response);
+        return FailureWait(response, job);
     }
 
-    private async Task<(TimeSpan? Wait, InstallCredentials Credentials)> RegisterAsync(InstallCredentials credentials, CancellationToken ct)
+    private async Task<(TimeSpan? Wait, InstallCredentials Credentials)> RegisterAsync(InstallCredentials credentials, JobState job, CancellationToken ct)
     {
+        var paused = registrationPausedUntil - Now;
+        if (paused > TimeSpan.Zero)
+        {
+            return (paused, credentials);
+        }
         var characters = store.State.CharactersConsent;
         var response = await client.RegisterAsync(credentials, appVersion, locale, characters, background: true, ct).ConfigureAwait(false);
         if (response.IsStatus(409))
@@ -386,13 +548,16 @@ public sealed class TelemetryScheduler : IDisposable
         if (response.Succeeded)
         {
             store.MarkRegistered(credentials.Id, characters);
-            failures = 0;
+            job.Failures = 0;
+            registrationPausedUntil = DateTimeOffset.MinValue;
             return (null, credentials);
         }
-        return (FailureWait(response), credentials);
+        var wait = FailureWait(response, job);
+        registrationPausedUntil = Now + wait;
+        return (wait, credentials);
     }
 
-    private TimeSpan FailureWait(ApiResponse response)
+    private TimeSpan FailureWait(ApiResponse response, JobState job)
     {
         switch (response.Outcome)
         {
@@ -400,29 +565,29 @@ public sealed class TelemetryScheduler : IDisposable
             case ApiOutcome.Cancelled:
                 return TelemetryLimits.MinWait;
             case ApiOutcome.HttpError when response.StatusCode == 429:
-                return Backoff.RetryAfter(response.RetryAfter, random(), failures + 1);
+                return Backoff.RetryAfter(response.RetryAfter, random(), job.Failures + 1);
             case ApiOutcome.HttpError when response.StatusCode == 503:
                 if (response.Code == "disabled")
                 {
-                    featureOff = true;
+                    job.FeatureOff = true;
                 }
-                return Backoff.RetryAfter(response.RetryAfter, random(), failures + 1);
+                return Backoff.RetryAfter(response.RetryAfter, random(), job.Failures + 1);
             case ApiOutcome.HttpError when response.StatusCode == 403:
-                pausedUntil = Now + TelemetryLimits.ForbiddenPause;
+                job.PausedUntil = Now + TelemetryLimits.ForbiddenPause;
                 return TelemetryLimits.ForbiddenPause;
             case ApiOutcome.HttpError when response.StatusCode is 400 or 404 or 413 or 415:
                 return TelemetryLimits.BackoffCap;
         }
-        failures++;
-        LogLimited("Usage statistics could not reach the server; trying again later.");
-        return Backoff.Next(failures, random());
+        job.Failures++;
+        LogLimited(job, $"{job.Name} could not reach the server; trying again later.");
+        return Backoff.Next(job.Failures, random());
     }
 
     private TimeSpan AfterTelemetry(ApiResponse response, TelemetryBatch batch, InstallCredentials credentials, TimeSpan interval)
     {
         if (response.Succeeded)
         {
-            failures = 0;
+            usage.Failures = 0;
             unauthorized = 0;
             batch.Commit();
             store.RecordSend(credentials.Id, "sent", sent: true);
@@ -447,9 +612,9 @@ public sealed class TelemetryScheduler : IDisposable
                 store.RecordSend(credentials.Id, $"rejected by the server ({response.StatusCode})", sent: false);
                 return Backoff.Jitter(interval, random());
         }
-        var wait = FailureWait(response);
-        store.RecordSend(credentials.Id, response.Outcome == ApiOutcome.HttpError && response.StatusCode == 503 && featureOff ? "switched off by the server" : "server unreachable", sent: false);
-        if (featureOff)
+        var wait = FailureWait(response, usage);
+        store.RecordSend(credentials.Id, response.Outcome == ApiOutcome.HttpError && response.StatusCode == 503 && usage.FeatureOff ? "switched off by the server" : "server unreachable", sent: false);
+        if (usage.FeatureOff)
         {
             configDueAt = Now + wait;
         }
@@ -470,6 +635,22 @@ public sealed class TelemetryScheduler : IDisposable
         catch (JsonException)
         {
             return 0;
+        }
+    }
+
+    private sealed class JobState(string name)
+    {
+        public string Name { get; } = name;
+        public int Failures;
+        public bool FeatureOff;
+        public DateTimeOffset PausedUntil;
+        public DateTimeOffset LastLogAt = DateTimeOffset.MinValue;
+
+        public void Reset()
+        {
+            Failures = 0;
+            FeatureOff = false;
+            PausedUntil = DateTimeOffset.MinValue;
         }
     }
 }

@@ -8,6 +8,7 @@ using OsbManager.Core.Rendering;
 using OsbManager.Core.Scripts;
 using OsbManager.Core.Status;
 using OsbManager.Core.Telemetry;
+using OsbManager.Core.Telemetry.Diagnostics;
 using OsbManager.Core.Updates;
 using Format = OsbManager.Core.Status.Format;
 
@@ -17,10 +18,12 @@ internal sealed class MainForm : Form
 {
     private readonly AppServices services;
     private readonly StartupOptions options;
+    private readonly ShowcaseFeed? showcase;
     private readonly string? runtimeVersion = BrowserHost.RuntimeVersion();
     private readonly Dictionary<string, GameWindow> windows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RendererRecovery> recoveries = new(StringComparer.Ordinal);
-    private readonly HashSet<string> restarting = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PageHealth> pageHealth = new(StringComparer.Ordinal);
+    private readonly WindowRestarts restarting = new();
     private readonly TreeView accountTree = new() { Dock = DockStyle.Fill, HideSelection = false, FullRowSelect = true };
     private readonly TreeNode rootNode = new("Accounts");
     private readonly ListBox logList = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true };
@@ -45,6 +48,12 @@ internal sealed class MainForm : Form
     private readonly TabPage memoryPage = new("Memory");
     private bool memoryBusy;
     private bool closing;
+    private readonly ScriptJobs scriptJobs = new();
+    private static readonly TimeSpan OsbUpdateFirstDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan OsbUpdateInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan OsbUpdateBusyRetry = TimeSpan.FromMinutes(1);
+    private readonly System.Windows.Forms.Timer osbUpdateTimer = new();
+    private readonly OsbAutoUpdate osbUpdate;
     private readonly CheckBox soxMineBox = new() { Text = "Only my characters", AutoSize = true, Checked = true, Margin = new Padding(3, 7, 3, 3) };
     private readonly CheckBox soxHideStarBox = new() { Text = "Hide Star items", AutoSize = true, Margin = new Padding(3, 7, 3, 3) };
     private readonly Label soxSummary = new() { AutoSize = true, Margin = new Padding(12, 9, 3, 3) };
@@ -69,7 +78,9 @@ internal sealed class MainForm : Form
     private readonly Panel botNotice = new() { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), Visible = false };
     private readonly Label botWarning = new() { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), ForeColor = Color.Firebrick, Visible = false };
     private readonly Panel privacyPrompt = new() { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8), Visible = false, BackColor = SystemColors.Info };
-    private readonly PrivacyTexts privacyTexts = PrivacyTexts.For(CultureInfo.CurrentUICulture);
+    private readonly PrivacyTexts privacyTexts = PrivacyTexts.English;
+    private readonly Label privacyLead = new() { AutoSize = true, MaximumSize = new Size(760, 0), Visible = false, Margin = new Padding(3, 4, 3, 2) };
+    private readonly Label osbInstallLine = new() { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), ForeColor = SystemColors.GrayText, Visible = false };
     private bool botWarningLogged;
     private readonly Panel updatePanel = new() { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8), Visible = false, BackColor = SystemColors.Info };
     private readonly Label updateText = new() { AutoSize = true, MaximumSize = new Size(760, 0) };
@@ -78,10 +89,12 @@ internal sealed class MainForm : Form
     private DateTime lastLaunch = DateTime.MinValue;
     private bool exitingForUpdate;
 
-    public MainForm(AppServices services, StartupOptions options)
+    public MainForm(AppServices services, StartupOptions options, ShowcaseFeed? showcase = null)
     {
         this.services = services;
         this.options = options;
+        this.showcase = showcase;
+        osbUpdate = new OsbAutoUpdate(services.Scripts, services.Http, scriptJobs, () => services.Settings.UpdateOsbAutomatically, options.OsbUrl);
         Text = AppIdentity.Name;
         Icon = AppIcon.Instance;
         ClientSize = new Size(1100, 560);
@@ -90,7 +103,23 @@ internal sealed class MainForm : Form
 
         accountTree.Nodes.Add(rootNode);
         accountTree.AfterSelect += (_, _) => ShowSelectedAccount();
-        accountTree.NodeMouseDoubleClick += (_, e) => { if (e.Node?.Tag is Account account) StartOrShow(account, account.StartLight); };        scriptGrid.ItemChecked += OnScriptChecked;
+        accountTree.NodeMouseDoubleClick += (_, e) => { if (e.Node?.Tag is Account account) StartOrShow(account, account.StartLight); };
+        accountTree.NodeMouseClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Right && e.Node is { } node)
+            {
+                accountTree.SelectedNode = node;
+                ShowAccountMenu(node.Tag as Account, accountTree, e.Location);
+            }
+        };
+        statusGrid.MouseUp += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Right && statusGrid.GetItemAt(e.X, e.Y) is { Tag: Account account } row)
+            {
+                row.Selected = true;
+                ShowAccountMenu(account, statusGrid, e.Location);
+            }
+        };        scriptGrid.ItemChecked += OnScriptChecked;
 
         var leftTabs = new TabControl { Dock = DockStyle.Fill };
         leftTabs.TabPages.Add(Page("Accounts", accountTree));
@@ -139,8 +168,27 @@ internal sealed class MainForm : Form
         Shown += (_, _) =>
         {
             split.SplitterDistance = 230;
+            if (showcase is not null)
+            {
+                return;
+            }
+            services.PostToUi = action => { if (!closing && !IsDisposed && IsHandleCreated) { BeginInvoke(action); } };
+            services.Telemetry.Capture.RequestPageMemory = RequestPageMemory;
             OnShownStartAccounts();
+            _ = InstallOsbThenWatchForUpdatesAsync();
             services.Telemetry.Start();
+#if DEBUG
+            if (TelemetryTestSwitches.WithdrawAfterSeconds is { } withdrawAfter)
+            {
+                var withdrawTimer = new System.Windows.Forms.Timer { Interval = withdrawAfter * 1000 };
+                withdrawTimer.Tick += (_, _) =>
+                {
+                    withdrawTimer.Stop();
+                    _ = services.Telemetry.WithdrawAsync();
+                };
+                withdrawTimer.Start();
+            }
+#endif
             StartUpdates();
         };
 
@@ -170,8 +218,14 @@ internal sealed class MainForm : Form
             LatencyProbe.Interval("ui_1s", 1000);
 #endif
             StartQueued();
+            UpdatePerfWindows();
             services.Updates.Busy = startQueue.Count > 0 || DateTime.UtcNow - lastLaunch < TimeSpan.FromSeconds(60);
             services.Renderers.Pump();
+            services.Telemetry.TickOsbPerf();
+            foreach (var window in windows.Values.ToList())
+            {
+                window.WatchPage();
+            }
             RefreshAll();
         };
         refreshTimer.Start();
@@ -193,6 +247,7 @@ internal sealed class MainForm : Form
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         memoryTimer.Stop();
+        osbUpdateTimer.Stop();
         if (e.CloseReason == CloseReason.UserClosing && !exitingForUpdate && !ConfirmCloseAll("quit"))
         {
             e.Cancel = true;
@@ -220,22 +275,23 @@ internal sealed class MainForm : Form
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add("Exit", null, (_, _) => Close());
         var accounts = new ToolStripMenuItem("Accounts");
-        accounts.DropDownItems.Add("Add…", null, (_, _) => AddAccount());
-        accounts.DropDownItems.Add("Remove…", null, (_, _) => RemoveSelectedAccount());
-        accounts.DropDownItems.Add(new ToolStripMenuItem("Move up", null, (_, _) => MoveSelectedAccount(-1)) { ShortcutKeyDisplayString = "Alt+Up" });
-        accounts.DropDownItems.Add(new ToolStripMenuItem("Move down", null, (_, _) => MoveSelectedAccount(1)) { ShortcutKeyDisplayString = "Alt+Down" });
+        accounts.DropDownItems.Add(AccountMenu.Add, null, (_, _) => AddAccount());
+        accounts.DropDownItems.Add(AccountMenu.Remove, null, (_, _) => RemoveSelectedAccount());
+        accounts.DropDownItems.Add(new ToolStripMenuItem(AccountMenu.MoveUp, null, (_, _) => MoveSelectedAccount(-1)) { ShortcutKeyDisplayString = "Alt+Up" });
+        accounts.DropDownItems.Add(new ToolStripMenuItem(AccountMenu.MoveDown, null, (_, _) => MoveSelectedAccount(1)) { ShortcutKeyDisplayString = "Alt+Down" });
         accounts.DropDownItems.Add(new ToolStripSeparator());
-        accounts.DropDownItems.Add("Start", null, (_, _) => StartSelected(light: false));
-        accounts.DropDownItems.Add("Start light", null, (_, _) => StartSelected(light: true));
-        accounts.DropDownItems.Add("Start all", null, (_, _) => StartAll(light: false));
-        accounts.DropDownItems.Add("Start all light", null, (_, _) => StartAll(light: true));
-        accounts.DropDownItems.Add("Toggle light mode", null, (_, _) => ToggleSelectedLight());
-        accounts.DropDownItems.Add("Close", null, (_, _) => CloseSelected());
-        accounts.DropDownItems.Add("Close all", null, (_, _) => CloseAll(prompt: true));
+        accounts.DropDownItems.Add(AccountMenu.Start, null, (_, _) => StartSelected(light: false));
+        accounts.DropDownItems.Add(AccountMenu.StartLight, null, (_, _) => StartSelected(light: true));
+        accounts.DropDownItems.Add(AccountMenu.StartAll, null, (_, _) => StartAll(light: false));
+        accounts.DropDownItems.Add(AccountMenu.StartAllLight, null, (_, _) => StartAll(light: true));
+        accounts.DropDownItems.Add(AccountMenu.ToggleLight, null, (_, _) => ToggleSelectedLight());
+        accounts.DropDownItems.Add(AccountMenu.Close, null, (_, _) => CloseSelected());
+        accounts.DropDownItems.Add(AccountMenu.CloseAll, null, (_, _) => CloseAll(prompt: true));
         var scripts = new ToolStripMenuItem("Scripts");
         scripts.DropDownItems.Add("Add from file…", null, (_, _) => AddScriptFromFile());
         scripts.DropDownItems.Add("Add from URL…", null, (_, _) => AddScriptFromUrl());
         scripts.DropDownItems.Add("Update", null, (_, _) => UpdateScripts());
+        scripts.DropDownItems.Add(SettingItem("Update OSB automatically", services.Settings.UpdateOsbAutomatically, on => services.Settings.UpdateOsbAutomatically = on));
         scripts.DropDownItems.Add("Reload open game windows", null, (_, _) => ReloadAll());
         var view = new ToolStripMenuItem("View");
         var frameLimit = new ToolStripMenuItem("Frame rate limit");
@@ -319,7 +375,7 @@ internal sealed class MainForm : Form
         memoryBusy = true;
         try
         {
-            var report = await MemoryProbe.CaptureAsync(services.Browser, windows.Values.ToList());
+            var report = showcase?.Memory ?? await MemoryProbe.CaptureAsync(services.Browser, windows.Values.ToList());
             if (!MemoryViewVisible)
             {
                 return;
@@ -375,6 +431,7 @@ internal sealed class MainForm : Form
             window.ApplyFrameLimit();
         }
         services.Log.Info(fps == 0 ? "Frame rate limit off." : $"Frame rate limited to {fps} FPS.");
+        Note("info", TrailCodes.SettingsFpsLimit);
     }
 
     private Control BuildEditor()
@@ -472,6 +529,7 @@ internal sealed class MainForm : Form
         panel.Controls.Add(buttons);
         panel.Controls.Add(botWarning);
         panel.Controls.Add(botNotice);
+        panel.Controls.Add(osbInstallLine);
         return panel;
     }
 
@@ -489,6 +547,77 @@ internal sealed class MainForm : Form
             {
                 StartOrShow(account, options.StartLight || account.StartLight);
             }
+        }
+    }
+
+    private AccountMenuState StateOf(Account account) =>
+        ViewOf(account) is not null ? AccountMenuState.Open : startQueue.Contains(account) ? AccountMenuState.Queued : AccountMenuState.Closed;
+
+    private void ShowAccountMenu(Account? account, Control owner, Point at)
+    {
+        var entries = account is null ? AccountMenu.ForRoot() : AccountMenu.ForAccount(account, StateOf(account));
+        var menu = new ContextMenuStrip();
+        foreach (var entry in entries)
+        {
+            if (entry.SeparatorBefore)
+            {
+                menu.Items.Add(new ToolStripSeparator());
+            }
+            var item = new ToolStripMenuItem(entry.Text) { Enabled = entry.Enabled };
+            item.Click += (_, _) => RunAccountMenuItem(entry);
+            menu.Items.Add(item);
+        }
+        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+        menu.Show(owner, at);
+    }
+
+    private void RunAccountMenuItem(AccountMenuItem entry)
+    {
+        var account = entry.Target;
+        switch (entry.Action)
+        {
+            case AccountMenuAction.Add:
+                AddAccount();
+                break;
+            case AccountMenuAction.StartAll:
+                StartAll(light: false);
+                break;
+            case AccountMenuAction.StartAllLight:
+                StartAll(light: true);
+                break;
+            case AccountMenuAction.CloseAll:
+                CloseAll(prompt: true);
+                break;
+            case AccountMenuAction.Start when account is not null:
+                StartOrShow(account, light: false);
+                break;
+            case AccountMenuAction.StartLight when account is not null:
+                StartOrShow(account, light: true);
+                break;
+            case AccountMenuAction.ShowWindow when account is not null:
+                StartOrShow(account, account.StartLight);
+                break;
+            case AccountMenuAction.ReloadWindow when account is not null:
+                ReloadAccountWindow(account);
+                break;
+            case AccountMenuAction.Close when account is not null:
+                CloseAccount(account);
+                break;
+            case AccountMenuAction.CancelStart when account is not null:
+                CancelStart(account);
+                break;
+            case AccountMenuAction.ToggleLight when account is not null:
+                ToggleLight(account);
+                break;
+            case AccountMenuAction.MoveUp when account is not null:
+                MoveAccount(account, -1);
+                break;
+            case AccountMenuAction.MoveDown when account is not null:
+                MoveAccount(account, 1);
+                break;
+            case AccountMenuAction.Remove when account is not null:
+                RemoveAccount(account);
+                break;
         }
     }
 
@@ -551,17 +680,23 @@ internal sealed class MainForm : Form
         {
             recovery = recoveries[account.Id] = new RendererRecovery();
         }
-        var window = new GameWindow(services, account, light, recovery);
+        if (!pageHealth.TryGetValue(account.Id, out var health))
+        {
+            health = pageHealth[account.Id] = new PageHealth();
+        }
+        var window = new GameWindow(services, account, light, recovery, health);
         window.RestartRequested += (_, _) => RestartWindow(window);
         window.FormClosed += (_, _) =>
         {
             windows.Remove(account.Id);
-            var restart = restarting.Remove(account.Id) && !closing;
+            var restart = restarting.TakeOnClose(account.Id, closing);
             if (!restart)
             {
                 recoveries.Remove(account.Id);
+                pageHealth.Remove(account.Id);
             }
             services.Log.Info($"{account.Name}: closed{(restart ? " for a restart" : "")}.");
+            Note("info", TrailCodes.WindowClosed, account);
             if (restart)
             {
                 StartOrShow(account, window.Light);
@@ -571,8 +706,65 @@ internal sealed class MainForm : Form
         windows[account.Id] = window;
         lastLaunch = DateTime.UtcNow;
         services.Log.Info($"{account.Name}: starting{(light ? " in light mode" : "")}.");
+        Note("info", TrailCodes.WindowStart, account);
         window.Show();
         RefreshAll();
+    }
+
+    private void Note(string level, string code, Account? account = null)
+    {
+        if (services.Telemetry.Diagnostics.Recording)
+        {
+            services.Telemetry.Capture.Trail(level, code, account is null ? null : services.Ordinals.Of(account.Id));
+        }
+    }
+
+    private void UpdatePerfWindows()
+    {
+        if (!services.Telemetry.Diagnostics.Recording)
+        {
+            return;
+        }
+        var open = windows.Values;
+        services.PerfWindows = new PerfWindows(open.Count, open.Count(w => w.Light), open.Count(w => w.Hidden), open.Count(w => w.InGame));
+    }
+
+    private void RequestPageMemory()
+    {
+        if (closing || IsDisposed || !IsHandleCreated || !services.Telemetry.Diagnostics.Recording)
+        {
+            return;
+        }
+        BeginInvoke(() =>
+        {
+            void OnIdle(object? sender, EventArgs e)
+            {
+                Application.Idle -= OnIdle;
+                ReadPageMemoryForPerf();
+            }
+            Application.Idle += OnIdle;
+        });
+    }
+
+    private async void ReadPageMemoryForPerf()
+    {
+        if (closing || IsDisposed || !services.Telemetry.Diagnostics.Recording)
+        {
+            return;
+        }
+        try
+        {
+            var open = windows.Values.ToList();
+            var reads = await Task.WhenAll(open.Select(w => w.ReadPageMemoryAsync())).WaitAsync(TimeSpan.FromSeconds(10));
+            const double megabyte = 1024 * 1024;
+            services.Telemetry.Perf.SetPageMemory(
+                reads.Where(r => r.JsHeapUsed is not null).Select(r => r.JsHeapUsed!.Value / megabyte).ToList(),
+                reads.Where(r => r.JsHeapTotal is not null).Select(r => r.JsHeapTotal!.Value / megabyte).ToList(),
+                reads.Where(r => r.WasmBytes is not null).Select(r => r.WasmBytes!.Value / megabyte).ToList());
+        }
+        catch (TimeoutException)
+        {
+        }
     }
 
     private void RestartWindow(GameWindow window)
@@ -581,8 +773,10 @@ internal sealed class MainForm : Form
         {
             return;
         }
-        restarting.Add(window.Account.Id);
-        BeginInvoke(window.CloseWithoutPrompt);
+        if (restarting.Request(window.Account.Id))
+        {
+            BeginInvoke(window.CloseWithoutPrompt);
+        }
     }
 
     private void StartAll(bool light)
@@ -601,7 +795,15 @@ internal sealed class MainForm : Form
 
     private void MoveSelectedAccount(int offset)
     {
-        if (SelectedAccount is { } account && services.Accounts.Move(account, offset))
+        if (SelectedAccount is { } account)
+        {
+            MoveAccount(account, offset);
+        }
+    }
+
+    private void MoveAccount(Account account, int offset)
+    {
+        if (services.Accounts.Move(account, offset))
         {
             startQueue.SortBy(services.Accounts.Accounts);
             RebuildTree();
@@ -615,22 +817,77 @@ internal sealed class MainForm : Form
             MoveSelectedAccount((keyData & Keys.KeyCode) == Keys.Up ? -1 : 1);
             return true;
         }
+        if (keyData is Keys.Apps or (Keys.Shift | Keys.F10))
+        {
+            if (accountTree.Focused && accountTree.SelectedNode is { } node)
+            {
+                ShowAccountMenu(node.Tag as Account, accountTree, new Point(node.Bounds.Left, node.Bounds.Bottom));
+                return true;
+            }
+            if (statusGrid.Focused && statusGrid.SelectedItems.Count > 0 && statusGrid.SelectedItems[0] is { Tag: Account account } row)
+            {
+                ShowAccountMenu(account, statusGrid, new Point(row.Bounds.Left, row.Bounds.Bottom));
+                return true;
+            }
+        }
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
     private void ToggleSelectedLight()
     {
-        if (SelectedAccount is { } account && windows.TryGetValue(account.Id, out var window))
+        if (SelectedAccount is { } account)
+        {
+            ToggleLight(account);
+        }
+    }
+
+    private void ToggleLight(Account account)
+    {
+        if (windows.TryGetValue(account.Id, out var window))
         {
             window.SetLight(!window.Light);
+            return;
         }
+        account.StartLight = !account.StartLight;
+        services.Accounts.Save();
+        services.Log.Info($"{account.Name}: {(account.StartLight ? "starts in light mode" : "starts with rendering on")}.");
+        if (SelectedAccount == account)
+        {
+            ShowSelectedAccount();
+        }
+        RefreshAll();
     }
 
     private void CloseSelected()
     {
-        if (SelectedAccount is { } account && windows.TryGetValue(account.Id, out var window))
+        if (SelectedAccount is { } account)
+        {
+            CloseAccount(account);
+        }
+    }
+
+    private void CloseAccount(Account account)
+    {
+        if (windows.TryGetValue(account.Id, out var window))
         {
             window.Close();
+        }
+    }
+
+    private void ReloadAccountWindow(Account account)
+    {
+        if (windows.TryGetValue(account.Id, out var window))
+        {
+            window.ReloadPage();
+        }
+    }
+
+    private void CancelStart(Account account)
+    {
+        if (startQueue.Remove(account))
+        {
+            services.Log.Info($"{account.Name}: start cancelled.");
+            RefreshAll();
         }
     }
 
@@ -641,6 +898,7 @@ internal sealed class MainForm : Form
             return;
         }
         startQueue.Clear();
+        restarting.Clear();
         foreach (var window in windows.Values.ToList())
         {
             window.CloseWithoutPrompt();
@@ -676,16 +934,21 @@ internal sealed class MainForm : Form
         }
         var account = services.Accounts.Add(name);
         services.Log.Info($"{account.Name}: added.");
+        services.LearnTerms();
         RebuildTree();
         SelectAccount(account);
     }
 
-    private async void RemoveSelectedAccount()
+    private void RemoveSelectedAccount()
     {
-        if (SelectedAccount is not { } account)
+        if (SelectedAccount is { } account)
         {
-            return;
+            RemoveAccount(account);
         }
+    }
+
+    private async void RemoveAccount(Account account)
+    {
         startQueue.Remove(account);
         if (windows.ContainsKey(account.Id))
         {
@@ -727,6 +990,7 @@ internal sealed class MainForm : Form
         account.StartLight = startLightBox.Checked;
         services.Accounts.Rename(account, nameBox.Text);
         services.Accounts.UpdateLogin(account, login, services.Protector);
+        services.LearnTerms();
         services.Log.Info($"{account.Name}: settings saved{(account.AutoLogin ? " (automatic login on)" : "")}.");
         if (windows.TryGetValue(account.Id, out var window))
         {
@@ -799,6 +1063,7 @@ internal sealed class MainForm : Form
         {
             return;
         }
+        var job = scriptJobs.Begin();
         try
         {
             var script = await services.Scripts.InstallFromUrlAsync(url, services.Http);
@@ -807,7 +1072,12 @@ internal sealed class MainForm : Form
         catch (Exception e)
         {
             services.Log.Error($"Could not install {url}", e);
+            Note("error", TrailCodes.ScriptInstallFailed);
             MessageBox.Show(this, e.Message, "Add userscript", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            job.Dispose();
         }
     }
 
@@ -815,25 +1085,34 @@ internal sealed class MainForm : Form
     {
         var selected = scriptGrid.SelectedItems.Cast<ListViewItem>().Select(i => i.Tag).OfType<InstalledScript>().ToList();
         var targets = selected.Count > 0 ? selected : services.Scripts.Scripts.ToList();
-        foreach (var script in targets)
+        var job = scriptJobs.Begin();
+        try
         {
-            if (script.UpdateSource is not { } source)
+            foreach (var script in targets)
             {
-                services.Log.Warn($"{script.Meta.Name} has no download address; add the new file instead.");
-                continue;
+                if (script.UpdateSource is not { } source)
+                {
+                    services.Log.Warn($"{script.Meta.Name} has no download address; add the new file instead.");
+                    continue;
+                }
+                try
+                {
+                    var before = script.Meta.Version;
+                    var updated = await services.Scripts.InstallFromUrlAsync(source, services.Http);
+                    services.Log.Info(before == updated.Meta.Version
+                        ? $"{updated.Meta.Name} is up to date ({before})."
+                        : $"Updated {updated.Meta.Name} from {before} to {updated.Meta.Version}.");
+                }
+                catch (Exception e)
+                {
+                    services.Log.Error($"Could not update {script.Meta.Name}", e);
+                    Note("error", TrailCodes.ScriptUpdateFailed);
+                }
             }
-            try
-            {
-                var before = script.Meta.Version;
-                var updated = await services.Scripts.InstallFromUrlAsync(source, services.Http);
-                services.Log.Info(before == updated.Meta.Version
-                    ? $"{updated.Meta.Name} is up to date ({before})."
-                    : $"Updated {updated.Meta.Name} from {before} to {updated.Meta.Version}.");
-            }
-            catch (Exception e)
-            {
-                services.Log.Error($"Could not update {script.Meta.Name}", e);
-            }
+        }
+        finally
+        {
+            job.Dispose();
         }
     }
 
@@ -902,14 +1181,17 @@ internal sealed class MainForm : Form
 
     private void RefreshAll()
     {
-        privacyPrompt.Visible = services.Telemetry.Privacy.State.NeedsAnswer;
+        var privacy = services.Telemetry.Privacy.State;
+        privacyPrompt.Visible = privacy.NeedsAnswer;
+        privacyLead.Visible = privacy.SharedBefore;
         foreach (TreeNode node in rootNode.Nodes)
         {
             if (node.Tag is not Account account)
             {
                 continue;
             }
-            var open = windows.TryGetValue(account.Id, out var window);
+            var window = ViewOf(account);
+            var open = window is not null;
             var text = open ? $"{account.Name} ●{(window!.Light ? " light" : "")}" : startQueue.Contains(account) ? $"{account.Name} (queued)" : account.Name;
             var color = !open ? SystemColors.GrayText : window!.InGame ? Color.ForestGreen : SystemColors.ControlText;
             if (node.Text != text)
@@ -923,20 +1205,26 @@ internal sealed class MainForm : Form
         }
         statusGrid.SetRows(services.Accounts.Accounts.Select(StatusRow).ToList());
         statsGrid.SetRows(StatsRows());
-        var inGame = windows.Values.Count(w => w.InGame);
-        countLabel.Text = $"{inGame}/{services.Accounts.Accounts.Count} in game · {windows.Count} open";
+        var inGame = OpenViews.Count(w => w.InGame);
+        countLabel.Text = $"{inGame}/{services.Accounts.Accounts.Count} in game · {OpenViews.Count()} open";
         countLabel.ForeColor = inGame > 0 ? Color.ForestGreen : SystemColors.ControlText;
 
-        var cache = services.Cache.Counters;
-        var bot = windows.Values.Select(w => w.Status?.BotVersion).FirstOrDefault(v => v is not null);
+        var cache = showcase?.Cache ?? services.Cache.Counters;
+        var bot = OpenViews.Select(w => w.Status?.BotVersion).FirstOrDefault(v => v is not null);
         footer.Text = $"Bot {bot ?? "—"} · shared cache {Format.Bytes(cache.DiskBytes)} ({cache.Packs} packs) · " +
             $"served from disk {Format.Bytes(cache.ServedFromDisk)} · downloaded {Format.Bytes(cache.Downloaded)}" +
             (cache.Failures > 0 ? $" · {cache.Failures} fell back to the browser" : "");
     }
 
+    private IEnumerable<IGameView> OpenViews => showcase is null ? windows.Values : showcase.Windows;
+
+    private IGameView? ViewOf(Account account) => showcase is null
+        ? windows.GetValueOrDefault(account.Id)
+        : showcase.Windows.FirstOrDefault(w => w.Account.Id == account.Id);
+
     private GridRow StatusRow(Account account)
     {
-        if (!windows.TryGetValue(account.Id, out var window))
+        if (ViewOf(account) is not { } window)
         {
             var state = startQueue.WaitFor(account) is { } wait ? $"Starts in {Math.Ceiling(wait.TotalSeconds):0} s" : "Closed";
             return new GridRow([account.Name, state, "", "", "", "", "", "", "", "", ""], account);
@@ -969,10 +1257,11 @@ internal sealed class MainForm : Form
     {
         var rows = new List<GridRow>();
         var lines = new List<StatsLine>();
-        var drops = services.Sox.Drops.Where(d => d.Ours && d.At >= startedAt).ToList();
+        var sessionStart = showcase?.SessionStart ?? startedAt;
+        var drops = services.Sox.Drops.Where(d => d.Ours && d.At >= sessionStart).ToList();
         foreach (var account in services.Accounts.Accounts)
         {
-            if (!windows.TryGetValue(account.Id, out var window) || window.Status?.Session is not { } session)
+            if (ViewOf(account) is not { } window || window.Status?.Session is not { } session)
             {
                 continue;
             }
@@ -1023,22 +1312,42 @@ internal sealed class MainForm : Form
     private void BuildPrivacyPrompt()
     {
         var title = new Label { AutoSize = true, Text = privacyTexts.FirstRunTitle, Font = new Font(Font, FontStyle.Bold) };
+        privacyLead.Text = privacyTexts.FirstRunChangedLead;
+        privacyLead.Font = new Font(Font, FontStyle.Italic);
         var text = new Label { AutoSize = true, MaximumSize = new Size(760, 0), Text = privacyTexts.FirstRunText };
-        var what = new LinkLabel { AutoSize = true, Text = privacyTexts.FirstRunWhat, Margin = new Padding(12, 9, 3, 3) };
-        what.LinkClicked += (_, _) => OpenPrivacy();
-        var policy = new LinkLabel { AutoSize = true, Text = privacyTexts.PolicyLink, Margin = new Padding(12, 9, 3, 3) };
-        policy.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo(privacyTexts.PolicyUrl) { UseShellExecute = true });
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom };
         buttons.Controls.AddRange([
             ButtonFor(privacyTexts.FirstRunShare, () => { services.Telemetry.Accept(characters: false); RefreshAll(); }),
-            ButtonFor(privacyTexts.FirstRunDecline, () => { services.Telemetry.Decline(); RefreshAll(); }),
-            what,
-            policy,
+            ButtonFor(privacyTexts.FirstRunDecline, DeclinePrivacy),
+            PromptLink(privacyTexts.FirstRunWhat, () => OpenPrivacy()),
+            PromptLink(privacyTexts.PolicyLink, () => OpenUrl(privacyTexts.PolicyUrl)),
+            PromptLink(privacyTexts.KvkkNoticeLink, () => OpenUrl(privacyTexts.KvkkNoticeUrl)),
+            PromptLink(privacyTexts.KvkkConsentLink, () => OpenUrl(privacyTexts.KvkkConsentUrl)),
         ]);
         var layout = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
-        layout.Controls.AddRange([title, text, buttons]);
+        layout.Controls.AddRange([title, privacyLead, text, buttons]);
+        var close = new Button { Text = "×", Width = 28, Height = 26, FlatStyle = FlatStyle.Flat, Dock = DockStyle.Right, TabStop = false };
+        close.FlatAppearance.BorderSize = 0;
+        close.Click += (_, _) => DeclinePrivacy();
+        toolTip.SetToolTip(close, privacyTexts.FirstRunClose);
         privacyPrompt.Controls.Add(layout);
+        privacyPrompt.Controls.Add(close);
     }
+
+    private void DeclinePrivacy()
+    {
+        services.Telemetry.Decline();
+        RefreshAll();
+    }
+
+    private static LinkLabel PromptLink(string text, Action open)
+    {
+        var link = new LinkLabel { AutoSize = true, Text = text, Margin = new Padding(12, 9, 3, 3) };
+        link.LinkClicked += (_, _) => open();
+        return link;
+    }
+
+    private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
     private void OpenPrivacy()
     {
@@ -1181,6 +1490,7 @@ internal sealed class MainForm : Form
         {
             updateText.Text = $"Downloading OSB Manager {offer.Version}...";
             services.Log.Info($"Downloading the update to {offer.Version}.");
+            Note("info", TrailCodes.UpdateDownload);
             var zip = await checker.DownloadAsync(offer, folder, CancellationToken.None);
             services.Log.Info($"The download matches the signed manifest of {offer.Version}.");
             await Task.Run(() => swap.Stage(zip));
@@ -1207,6 +1517,7 @@ internal sealed class MainForm : Form
                 TryRollBack(swap);
             }
             services.Log.Error("The update failed", e);
+            Note("error", TrailCodes.UpdateFailed);
             updateNotice.InstallFailed();
             ShowUpdateNotice(offer);
             OfferReleasePage($"The update to {offer.Version} failed: {e.Message}");
@@ -1308,6 +1619,7 @@ internal sealed class MainForm : Form
     private async void ReplaceNixxaneWithOsb()
     {
         var url = options.OsbUrl ?? BotScripts.OsbUrl;
+        var job = scriptJobs.Begin();
         try
         {
             var osb = await BotScripts.ReplaceWithOsbAsync(services.Scripts, services.Http, services.Settings, url, allowLoopbackHttp: options.OsbUrl is not null);
@@ -1318,7 +1630,97 @@ internal sealed class MainForm : Form
             services.Log.Error($"Could not install OSB from {url}", e);
             MessageBox.Show(this, $"Could not install OSB: {e.Message}\n\nThe previous bot was not changed.", "Replace with OSB", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+        finally
+        {
+            job.Dispose();
+        }
         RefreshBotNotice();
+    }
+
+    private async Task InstallOsbThenWatchForUpdatesAsync()
+    {
+        var job = scriptJobs.Begin();
+        try
+        {
+            await InstallOsbOnFirstStartAsync();
+        }
+        finally
+        {
+            job.Dispose();
+        }
+        if (closing || IsDisposed)
+        {
+            return;
+        }
+        osbUpdateTimer.Interval = options.OsbUrl is null ? (int)OsbUpdateFirstDelay.TotalMilliseconds : 3000;
+        osbUpdateTimer.Tick += async (_, _) => await CheckOsbUpdateAsync();
+        osbUpdateTimer.Start();
+    }
+
+    private async Task CheckOsbUpdateAsync()
+    {
+        osbUpdateTimer.Interval = options.OsbUrl is null ? (int)OsbUpdateInterval.TotalMilliseconds : 15000;
+        if (closing || IsDisposed)
+        {
+            return;
+        }
+        var result = await osbUpdate.CheckAsync();
+        if (closing || IsDisposed)
+        {
+            return;
+        }
+        switch (result.Outcome)
+        {
+            case OsbUpdateOutcome.Busy:
+                osbUpdateTimer.Interval = (int)OsbUpdateBusyRetry.TotalMilliseconds;
+                break;
+            case OsbUpdateOutcome.Updated:
+                services.Log.Info($"Updated OSB from {result.OldVersion} to {result.NewVersion}. Reload the game windows to apply it.");
+                break;
+            case OsbUpdateOutcome.Failed when result.FirstFailureInStreak:
+                services.Log.Warn($"Could not check for an OSB update ({result.Error!.Message}). It will try again later.");
+                Note("warn", TrailCodes.ScriptUpdateFailed);
+                break;
+        }
+    }
+
+    private async Task InstallOsbOnFirstStartAsync()
+    {
+        if (services.Settings.OsbFirstInstall != OsbFirstInstallState.Pending)
+        {
+            return;
+        }
+        var url = options.OsbUrl ?? BotScripts.OsbUrl;
+        osbInstallLine.Text = "Installing OSB…";
+        osbInstallLine.Visible = true;
+        FirstInstallResult result;
+        try
+        {
+            result = await OsbFirstInstall.RunAsync(services.Scripts, services.Http, services.Settings, url, allowLoopbackHttp: options.OsbUrl is not null);
+        }
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException or IOException)
+        {
+            result = new FirstInstallResult(FirstInstallOutcome.Failed, Error: e);
+        }
+        if (closing || IsDisposed)
+        {
+            return;
+        }
+        switch (result.Outcome)
+        {
+            case FirstInstallOutcome.Installed:
+                var reload = windows.Count > 0 ? " Reload the game windows to apply it." : "";
+                services.Log.Info($"Installed OSB {result.Script!.Meta.Version}. You can turn it off or remove it on the Scripts tab.{reload}");
+                osbInstallLine.Visible = false;
+                break;
+            case FirstInstallOutcome.Failed:
+                services.Log.Warn($"Could not install OSB on the first start ({result.Error!.Message}). It will try again at the next start.");
+                osbInstallLine.Text = "Could not install OSB. It will try again at the next start, or add it with Add from URL.";
+                break;
+            default:
+                osbInstallLine.Visible = false;
+                break;
+        }
     }
 
     private void OnScriptsChanged()

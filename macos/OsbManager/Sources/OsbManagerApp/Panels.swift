@@ -4,7 +4,7 @@ import OsbManagerCore
 @MainActor
 final class StatusPanel {
     let table = DataTable(columns: [
-        .init("Account", 90), .init("State", 125), .init("Character", 90), .init("Region", 55), .init("Level", 42, .right),
+        .init("Account", 90), .init("State", 160), .init("Character", 90), .init("Region", 55), .init("Level", 42, .right),
         .init("HP", 42, .right), .init("MP", 42, .right), .init("Gold", 90, .right), .init("Return", 52, .right),
         .init("Reverse", 58, .right), .init("Bot", 70),
     ])
@@ -89,6 +89,7 @@ final class ScriptsPanel {
     let view = NSView()
     let table = DataTable(columns: [.init("Script", 180), .init("Version", 70), .init("Runs on", 220), .init("Run at", 100), .init("Notes", 260)], checkbox: true, multipleSelection: true)
     private let hint = Layout.label("", secondary: true)
+    private let installLine = Layout.label("", secondary: true)
 
     init(addFile: @escaping () -> Void, addUrl: @escaping () -> Void, update: @escaping () -> Void, remove: @escaping () -> Void, reload: @escaping () -> Void) {
         let buttons = Layout.row([
@@ -98,7 +99,8 @@ final class ScriptsPanel {
             ActionButton("Remove", handler: remove),
             ActionButton("Reload game windows", handler: reload),
         ])
-        let stack = Layout.column([table.scrollView, buttons, hint], spacing: 8)
+        installLine.isHidden = true
+        let stack = Layout.column([table.scrollView, buttons, hint, installLine], spacing: 8)
         stack.distribution = .fill
         table.scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
         Layout.pin(stack, in: view, insets: NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8))
@@ -107,12 +109,19 @@ final class ScriptsPanel {
 
     var selectedRows: [Int] { table.selectedRows }
 
+    var installLineText: String { installLine.isHidden ? "" : installLine.stringValue }
+
+    func setInstallLine(_ text: String?) {
+        installLine.stringValue = text ?? ""
+        installLine.isHidden = text == nil
+    }
+
     func show(_ scripts: [InstalledScript]) {
         table.setRows(
             scripts.map { [$0.meta.name, $0.meta.version, ($0.meta.matches + $0.meta.includes).joined(separator: " "), $0.meta.runAt, $0.warnings.joined(separator: "; ")] },
             checks: scripts.map(\.enabled)
         )
-        hint.stringValue = scripts.isEmpty ? "No scripts yet. Add from URL suggests opensro-bot-lean." : "Changes apply after a game window reloads."
+        hint.stringValue = scripts.isEmpty ? "No scripts yet. Add from URL suggests OSB." : "Changes apply after a game window reloads."
     }
 }
 

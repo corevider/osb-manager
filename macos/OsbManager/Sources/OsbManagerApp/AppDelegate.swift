@@ -12,6 +12,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     public private(set) var main: MainWindowController!
     public private(set) var telemetry: TelemetryController?
     public private(set) var updates: UpdateController?
+    public private(set) var osb: OsbController?
     private let driver: ((AppDelegate) async -> Void)?
     private var terminating = false
     private var leftMessageLoop = false
@@ -37,6 +38,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         main.show()
         NSApp.activate()
         startRequestedAccounts()
+        startOsbController()
         startLatencyRecording()
         startTelemetry()
         if driver == nil {
@@ -65,6 +67,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
             self.services.log.error("Quitting: \(self.manager.windows.count) game windows did not close in time, leaving anyway.")
             self.leaveMessageLoop()
         }
+    }
+
+    private func startOsbController() {
+        guard driver == nil || options.osbUrl != nil else { return }
+        let controller = OsbController(services: services, manager: manager, options: options)
+        controller.onInstallLineChange = { [weak self] line in self?.main.setOsbInstallLine(line) }
+        osb = controller
+        controller.start()
     }
 
     private func startLatencyRecording() {
@@ -101,6 +111,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         leftMessageLoop = true
         telemetry?.stop()
         updates?.stop()
+        osb?.stop()
         #if DEBUG
         LatencyRecorder.shared?.flush()
         #endif

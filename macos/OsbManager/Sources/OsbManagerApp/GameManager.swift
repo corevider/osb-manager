@@ -7,20 +7,27 @@ public final class GameManager {
 
     public let services: AppServices
     public let queue: StartQueue
+    public let feed: ShowcaseFeed?
     public private(set) var windows: [String: GameWindowController] = [:]
     public var onChange: (() -> Void)?
     public var onWindowClosed: (() -> Void)?
     private var launchedCount = 0
     private var recoveries: [String: RendererRecovery] = [:]
-    private var restarting: Set<String> = []
+    private var pageHealth: [String: PageHealth] = [:]
+    private let restarting = WindowRestarts()
 
-    public init(services: AppServices, queue: StartQueue = StartQueue(gap: GameManager.startGap)) {
+    public init(services: AppServices, queue: StartQueue = StartQueue(gap: GameManager.startGap), feed: ShowcaseFeed? = nil) {
         self.services = services
         self.queue = queue
+        self.feed = feed
+    }
+
+    public var views: [String: GameView] {
+        feed?.views ?? windows.mapValues { $0 as GameView }
     }
 
     public var inGameCount: Int {
-        windows.values.filter(\.inGame).count
+        views.values.filter(\.inGame).count
     }
 
     public func startOrShow(_ accountId: String, light: Bool) {
@@ -54,9 +61,14 @@ public final class GameManager {
         services.renderers.pump()
     }
 
+    public func watchPages() {
+        for window in Array(windows.values) {
+            window.watchPage()
+        }
+    }
+
     private func restart(_ window: GameWindowController) {
-        guard windows[window.accountId] === window else { return }
-        restarting.insert(window.accountId)
+        guard windows[window.accountId] === window, restarting.request(window.accountId) else { return }
         DispatchQueue.main.async {
             MainActor.assumeIsolated { window.closeWithoutPrompt() }
         }
@@ -67,7 +79,7 @@ public final class GameManager {
             return false
         }
         queue.clear()
-        restarting.removeAll()
+        restarting.clear()
         for window in Array(windows.values) {
             window.closeWithoutPrompt()
         }
@@ -104,7 +116,7 @@ public final class GameManager {
     }
 
     public func stateText(for account: Account) -> String {
-        if let window = windows[account.id] {
+        if let window = views[account.id] {
             return window.stateText
         }
         if let wait = queue.wait(for: account.id) {
@@ -114,15 +126,15 @@ public final class GameManager {
     }
 
     public func listText(for account: Account) -> String {
-        guard let window = windows[account.id] else {
+        guard let window = views[account.id] else {
             return queue.contains(account.id) ? "\(account.name) (queued)" : account.name
         }
-        let marks = [window.light ? "light" : nil, window.muted ? "muted" : nil, window.isHidden ? "hidden" : nil, window.window.isMiniaturized ? "minimised" : nil]
+        let marks = [window.light ? "light" : nil, window.muted ? "muted" : nil, window.isHidden ? "hidden" : nil, window.isMinimised ? "minimised" : nil]
         return ([account.name, "●"] + marks.compactMap { $0 }).joined(separator: " ")
     }
 
     public func statusRow(for account: Account) -> [String] {
-        guard let window = windows[account.id] else {
+        guard let window = views[account.id] else {
             return [account.name, stateText(for: account), "", "", "", "", "", "", "", "", ""]
         }
         let status = window.status
@@ -143,18 +155,21 @@ public final class GameManager {
     }
 
     private func launch(_ accountId: String, light: Bool) {
-        guard windows[accountId] == nil, let account = services.accounts.account(id: accountId) else { return }
+        guard feed == nil, windows[accountId] == nil, let account = services.accounts.account(id: accountId) else { return }
         let recovery = recoveries[accountId] ?? RendererRecovery()
         recoveries[accountId] = recovery
-        let window = GameWindowController(services: services, account: account, light: light, cascadeIndex: launchedCount, recovery: recovery)
+        let health = pageHealth[accountId] ?? PageHealth()
+        pageHealth[accountId] = health
+        let window = GameWindowController(services: services, account: account, light: light, cascadeIndex: launchedCount, recovery: recovery, health: health)
         launchedCount += 1
         window.onRestartRequested = { [weak self] window in self?.restart(window) }
         window.onClosed = { [weak self] closed in
             guard let self else { return }
             self.windows[closed.accountId] = nil
-            let restart = self.restarting.remove(closed.accountId) != nil
+            let restart = self.restarting.takeOnClose(closed.accountId, quitting: false)
             if !restart {
                 self.recoveries[closed.accountId] = nil
+                self.pageHealth[closed.accountId] = nil
             }
             self.services.log.info("\(self.services.accounts.account(id: closed.accountId)?.name ?? "Account"): closed\(restart ? " for a restart" : "").")
             if restart {

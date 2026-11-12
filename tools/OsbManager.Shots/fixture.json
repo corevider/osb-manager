@@ -1,0 +1,807 @@
+{
+  "clientSize": {
+    "width": 1224,
+    "height": 721
+  },
+  "scale": 2,
+  "sessionStart": "2026-11-08T18:29:40",
+  "selected": "Main",
+  "hideStar": false,
+  "accounts": [
+    {
+      "id": "3f9a1c07b2d4",
+      "name": "Main",
+      "loginId": "silkwanderer88",
+      "server": "",
+      "character": "Kaelthor",
+      "autoLogin": true,
+      "savedPassword": true,
+      "startLight": false,
+      "dataStoreId": "3f9a1c07-b2d4-4e61-9a85-0c7d2f4b1e93",
+      "window": {
+        "state": "In game",
+        "light": false,
+        "hidden": false,
+        "status": {
+          "botVersion": "2.0.3",
+          "phase": "world",
+          "character": "Kaelthor",
+          "inWorld": true,
+          "level": 86,
+          "gold": 412883190,
+          "hpPercent": 91,
+          "mpPercent": 68,
+          "region": 22389,
+          "hunting": true,
+          "townTrip": false,
+          "light": false,
+          "returnScrolls": 38,
+          "reverseScrolls": 4,
+          "linked": true,
+          "session": {
+            "milliseconds": 11520000,
+            "kills": 2604,
+            "deaths": 0,
+            "experience": 468210400,
+            "gold": 9410000
+          }
+        },
+        "memory": {
+          "privateMb": 812.4,
+          "workingSetMb": 655.1,
+          "jsHeapUsedMb": 214.6,
+          "jsHeapTotalMb": 262.0,
+          "wasmMb": 384.0,
+          "wasmMemories": 1
+        }
+      }
+    },
+    {
+      "id": "8b21e4c90a5f",
+      "name": "Nuker",
+      "loginId": "yunara.fire",
+      "server": "",
+      "character": "Yunara",
+      "autoLogin": true,
+      "savedPassword": true,
+      "startLight": false,
+      "dataStoreId": "8b21e4c9-0a5f-4b37-8d12-6e0f9c3a7b54",
+      "window": {
+        "state": "In game",
+        "light": false,
+        "hidden": false,
+        "status": {
+          "botVersion": "2.0.3",
+          "phase": "world",
+          "character": "Yunara",
+          "inWorld": true,
+          "level": 85,
+          "gold": 186402775,
+          "hpPercent": 100,
+          "mpPercent": 47,
+          "region": 22644,
+          "hunting": true,
+          "townTrip": false,
+          "light": false,
+          "returnScrolls": 22,
+          "reverseScrolls": 3,
+          "linked": true,
+          "session": {
+            "milliseconds": 11460000,
+            "kills": 2311,
+            "deaths": 1,
+            "experience": 431880000,
+            "gold": 8120500
+          }
+        },
+        "memory": {
+          "privateMb": 798.9,
+          "workingSetMb": 641.7,
+          "jsHeapUsedMb": 208.2,
+          "jsHeapTotalMb": 256.0,
+          "wasmMb": 384.0,
+          "wasmMemories": 1
+        }
+      }
+    },
+    {
+      "id": "c4d7015e9b36",
+      "name": "Cleric",
+      "loginId": "meilin.heals",
+      "server": "",
+      "character": "Meilin",
+      "autoLogin": true,
+      "savedPassword": true,
+      "startLight": true,
+      "dataStoreId": "c4d7015e-9b36-4a2c-b781-3f5e0d9c6a28",
+      "window": {
+        "state": "In game (light)",
+        "light": true,
+        "hidden": false,
+        "status": {
+          "botVersion": "2.0.3",
+          "phase": "world",
+          "character": "Meilin",
+          "inWorld": true,
+          "level": 82,
+          "gold": 95310442,
+          "hpPercent": 97,
+          "mpPercent": 81,
+          "region": 24172,
+          "hunting": true,
+          "townTrip": false,
+          "light": true,
+          "returnScrolls": 17,
+          "reverseScrolls": 2,
+          "linked": true,
+          "session": {
+            "milliseconds": 11400000,
+            "kills": 1180,
+            "deaths": 0,
+            "experience": 302400000,
+            "gold": 3905000
+          }
+        },
+        "memory": {
+          "privateMb": 402.7,
+          "workingSetMb": 318.5,
+          "jsHeapUsedMb": 198.3,
+          "jsHeapTotalMb": 240.0,
+          "wasmMb": 384.0,
+          "wasmMemories": 1
+        }
+      }
+    },
+    {
+      "id": "1e6f93a2d8c0",
+      "name": "Bard",
+      "loginId": "sable.song",
+      "server": "",
+      "character": "Sable",
+      "autoLogin": true,
+      "savedPassword": true,
+      "startLight": false,
+      "dataStoreId": "1e6f93a2-d8c0-47f5-a9e3-8b2c1d0f4e67",
+      "window": {
+        "state": "In game",
+        "light": false,
+        "hidden": false,
+        "status": {
+          "botVersion": "2.0.3",
+          "phase": "world",
+          "character": "Sable",
+          "inWorld": true,
+          "level": 82,
+          "gold": 77640118,
+          "hpPercent": 64,
+          "mpPercent": 22,
+          "region": 23915,
+          "hunting": false,
+          "townTrip": true,
+          "light": false,
+          "returnScrolls": 2,
+          "reverseScrolls": 1,
+          "linked": true,
+          "session": {
+            "milliseconds": 11340000,
+            "kills": 1942,
+            "deaths": 0,
+            "experience": 355100000,
+            "gold": 6620000
+          }
+        },
+        "memory": {
+          "privateMb": 826.0,
+          "workingSetMb": 662.4,
+          "jsHeapUsedMb": 221.9,
+          "jsHeapTotalMb": 270.0,
+          "wasmMb": 384.0,
+          "wasmMemories": 1
+        }
+      }
+    },
+    {
+      "id": "5a0c8f2e71b9",
+      "name": "Farm 1",
+      "loginId": "orkhon.steppe",
+      "server": "",
+      "character": "OrkhonWolf",
+      "autoLogin": true,
+      "savedPassword": true,
+      "startLight": false,
+      "dataStoreId": "5a0c8f2e-71b9-4d84-b6a1-2e9f7c0d3b15",
+      "window": {
+        "state": "In game",
+        "light": false,
+        "hidden": true,
+        "status": {
+          "botVersion": "2.0.3",
+          "phase": "world",
+          "character": "OrkhonWolf",
+          "inWorld": true,
+          "level": 80,
+          "gold": 54118906,
+          "hpPercent": 85,
+          "mpPercent": 73,
+          "region": 26495,
+          "hunting": true,
+          "townTrip": false,
+          "light": false,
+          "returnScrolls": 26,
+          "reverseScrolls": 5,
+          "linked": true,
+          "session": {
+            "milliseconds": 11280000,
+            "kills": 2770,
+            "deaths": 0,
+            "experience": 298700000,
+            "gold": 7450000
+          }
+        },
+        "memory": {
+          "privateMb": 516.2,
+          "workingSetMb": 120.4,
+          "jsHeapUsedMb": 205.0,
+          "jsHeapTotalMb": 248.0,
+          "wasmMb": 384.0,
+          "wasmMemories": 1
+        }
+      }
+    },
+    {
+      "id": "9d3b6e14c0a7",
+      "name": "Farm 2",
+      "loginId": "talas.archer",
+      "server": "",
+      "character": "TalasBow",
+      "autoLogin": true,
+      "savedPassword": true,
+      "startLight": true,
+      "dataStoreId": "9d3b6e14-c0a7-4c19-8f52-a7d3e6b0c981",
+      "window": {
+        "state": "In game (light)",
+        "light": true,
+        "hidden": true,
+        "status": {
+          "botVersion": "2.0.3",
+          "phase": "world",
+          "character": "TalasBow",
+          "inWorld": true,
+          "level": 78,
+          "gold": 31977250,
+          "hpPercent": 79,
+          "mpPercent": 90,
+          "region": 22379,
+          "hunting": true,
+          "townTrip": false,
+          "light": true,
+          "returnScrolls": 30,
+          "reverseScrolls": 2,
+          "linked": true,
+          "session": {
+            "milliseconds": 11220000,
+            "kills": 2515,
+            "deaths": 0,
+            "experience": 241300000,
+            "gold": 6980000
+          }
+        },
+        "memory": {
+          "privateMb": 371.8,
+          "workingSetMb": 96.3,
+          "jsHeapUsedMb": 196.7,
+          "jsHeapTotalMb": 236.0,
+          "wasmMb": 384.0,
+          "wasmMemories": 1
+        }
+      }
+    },
+    {
+      "id": "e2f50a9c47d1",
+      "name": "Trader",
+      "loginId": "ashkan.caravan",
+      "server": "",
+      "character": "Ashkan",
+      "autoLogin": true,
+      "savedPassword": true,
+      "startLight": false,
+      "dataStoreId": "e2f50a9c-47d1-4b6e-93c8-5d1a0f7e2b46",
+      "window": {
+        "state": "In game",
+        "light": false,
+        "hidden": false,
+        "status": {
+          "botVersion": "2.0.3",
+          "phase": "world",
+          "character": "Ashkan",
+          "inWorld": true,
+          "level": 70,
+          "gold": 23406880,
+          "hpPercent": 100,
+          "mpPercent": 100,
+          "region": 26250,
+          "hunting": false,
+          "townTrip": false,
+          "light": false,
+          "returnScrolls": 9,
+          "reverseScrolls": 0,
+          "linked": true,
+          "session": {
+            "milliseconds": 2460000,
+            "kills": 212,
+            "deaths": 0,
+            "experience": 18400000,
+            "gold": 610000
+          }
+        },
+        "memory": {
+          "privateMb": 774.6,
+          "workingSetMb": 618.9,
+          "jsHeapUsedMb": 189.4,
+          "jsHeapTotalMb": 232.0,
+          "wasmMb": 384.0,
+          "wasmMemories": 1
+        }
+      }
+    }
+  ],
+  "sox": [
+    {
+      "at": "2026-11-06T21:02:44",
+      "character": "Ashkan",
+      "item": "Blaze Diadem",
+      "seal": "Moon",
+      "monster": "Uruchi",
+      "text": "Ashkan has dropped Blaze Diadem (Seal Of Moon) from Uruchi",
+      "ours": true,
+      "seenBy": "Trader",
+      "receivedBy": ""
+    },
+    {
+      "at": "2026-11-06T22:17:09",
+      "character": "Kaelthor",
+      "item": "Demon Polearm",
+      "seal": "Star",
+      "monster": "Wing Tribe Chaser",
+      "text": "Kaelthor has dropped Demon Polearm (Seal Of Star) from Wing Tribe Chaser",
+      "ours": true,
+      "seenBy": "Main",
+      "receivedBy": "Kaelthor"
+    },
+    {
+      "at": "2026-11-07T18:40:31",
+      "character": "TalasBow",
+      "item": "Blaze Diadem",
+      "seal": "Moon",
+      "monster": "Isyutaru",
+      "text": "TalasBow has dropped Blaze Diadem (Seal Of Moon) from Isyutaru",
+      "ours": true,
+      "seenBy": "Farm 2",
+      "receivedBy": "TalasBow"
+    },
+    {
+      "at": "2026-11-07T21:12:58",
+      "character": "Tumenbayar",
+      "item": "Demon Polearm",
+      "seal": "Star",
+      "monster": "Wing Tribe Chaser",
+      "text": "Tumenbayar has dropped Demon Polearm (Seal Of Star) from Wing Tribe Chaser",
+      "ours": false,
+      "seenBy": "Bard",
+      "receivedBy": ""
+    },
+    {
+      "at": "2026-11-07T22:05:16",
+      "character": "Meilin",
+      "item": "Demon Polearm",
+      "seal": "Star",
+      "monster": "Wing Tribe Chaser",
+      "text": "Meilin has dropped Demon Polearm (Seal Of Star) from Wing Tribe Chaser",
+      "ours": true,
+      "seenBy": "Cleric",
+      "receivedBy": "Kaelthor"
+    },
+    {
+      "at": "2026-11-07T23:48:02",
+      "character": "OrkhonWolf",
+      "item": "Lynx Valor Phantom",
+      "seal": "Sun",
+      "monster": "Tiger Woman",
+      "text": "SEAL OF SUN: OrkhonWolf has dropped Lynx Valor Phantom from Tiger Woman",
+      "ours": true,
+      "seenBy": "Farm 1",
+      "receivedBy": "OrkhonWolf"
+    },
+    {
+      "at": "2026-11-08T18:47:20",
+      "character": "Vesperine",
+      "item": "Blaze Diadem",
+      "seal": "Moon",
+      "monster": "Tiger Woman",
+      "text": "Vesperine has dropped Blaze Diadem (Seal Of Moon) from Tiger Woman",
+      "ours": false,
+      "seenBy": "Farm 1",
+      "receivedBy": ""
+    },
+    {
+      "at": "2026-11-08T19:12:07",
+      "character": "Yunara",
+      "item": "Demon Polearm",
+      "seal": "Star",
+      "monster": "Lord Yarkan",
+      "text": "Yunara has dropped Demon Polearm (Seal Of Star) from Lord Yarkan",
+      "ours": true,
+      "seenBy": "Nuker",
+      "receivedBy": "Yunara"
+    },
+    {
+      "at": "2026-11-08T20:17:45",
+      "character": "IronLotus",
+      "item": "Lynx Valor Phantom",
+      "seal": "Sun",
+      "monster": "Demon Shaitan",
+      "text": "SEAL OF SUN: IronLotus has dropped Lynx Valor Phantom from Demon Shaitan",
+      "ours": false,
+      "seenBy": "Main",
+      "receivedBy": ""
+    },
+    {
+      "at": "2026-11-08T20:54:31",
+      "character": "Sable",
+      "item": "Blaze Diadem",
+      "seal": "Moon",
+      "monster": "Wing Tribe Chaser",
+      "text": "Sable has dropped Blaze Diadem (Seal Of Moon) from Wing Tribe Chaser",
+      "ours": true,
+      "seenBy": "Bard",
+      "receivedBy": "Yunara"
+    },
+    {
+      "at": "2026-11-08T21:31:10",
+      "character": "Kaelthor",
+      "item": "Demon Polearm",
+      "seal": "Star",
+      "monster": "Wing Tribe Chaser",
+      "text": "Kaelthor has dropped Demon Polearm (Seal Of Star) from Wing Tribe Chaser",
+      "ours": true,
+      "seenBy": "Main",
+      "receivedBy": "Kaelthor"
+    }
+  ],
+  "cache": {
+    "diskBytes": 1481763012,
+    "packs": 418,
+    "servedFromDisk": 10307921510,
+    "downloaded": 24117248,
+    "failures": 0
+  },
+  "processes": {
+    "gpu": {
+      "privateMb": 1206.5,
+      "workingSetMb": 702.3
+    },
+    "browser": {
+      "privateMb": 5640.2,
+      "workingSetMb": 3912.6
+    },
+    "app": {
+      "privateMb": 142.8,
+      "workingSetMb": 168.4
+    }
+  },
+  "log": [
+    {
+      "time": "18:29:40",
+      "level": "info",
+      "message": "Starting 7 accounts, one every 15 s."
+    },
+    {
+      "time": "18:29:40",
+      "level": "info",
+      "message": "Main: starting."
+    },
+    {
+      "time": "18:29:41",
+      "level": "info",
+      "message": "Main: browser started (profile acc-3f9a1c07b2d4)."
+    },
+    {
+      "time": "18:29:47",
+      "level": "info",
+      "message": "Main: typing the saved login into the game."
+    },
+    {
+      "time": "18:29:55",
+      "level": "info",
+      "message": "Nuker: starting."
+    },
+    {
+      "time": "18:30:03",
+      "level": "info",
+      "message": "Main: linked to the game."
+    },
+    {
+      "time": "18:30:09",
+      "level": "info",
+      "message": "Main: in the game as Kaelthor."
+    },
+    {
+      "time": "18:30:10",
+      "level": "info",
+      "message": "Cleric: starting in light mode."
+    },
+    {
+      "time": "18:30:24",
+      "level": "info",
+      "message": "Nuker: in the game as Yunara."
+    },
+    {
+      "time": "18:30:25",
+      "level": "info",
+      "message": "Bard: starting."
+    },
+    {
+      "time": "18:30:38",
+      "level": "info",
+      "message": "Cleric: in the game as Meilin."
+    },
+    {
+      "time": "18:30:40",
+      "level": "info",
+      "message": "Farm 1: starting."
+    },
+    {
+      "time": "18:30:53",
+      "level": "info",
+      "message": "Bard: in the game as Sable."
+    },
+    {
+      "time": "18:30:55",
+      "level": "info",
+      "message": "Farm 2: starting in light mode."
+    },
+    {
+      "time": "18:31:08",
+      "level": "info",
+      "message": "Farm 1: in the game as OrkhonWolf."
+    },
+    {
+      "time": "18:31:10",
+      "level": "info",
+      "message": "Trader: starting."
+    },
+    {
+      "time": "18:31:24",
+      "level": "info",
+      "message": "Farm 2: in the game as TalasBow."
+    },
+    {
+      "time": "18:31:39",
+      "level": "info",
+      "message": "Trader: in the game as Ashkan."
+    },
+    {
+      "time": "19:12:07",
+      "level": "info",
+      "message": "SoX drop: Yunara got Demon Polearm (Seal of Star) from Lord Yarkan."
+    },
+    {
+      "time": "19:12:09",
+      "level": "info",
+      "message": "SoX drop: Demon Polearm (Seal of Star) went to Yunara."
+    },
+    {
+      "time": "20:54:31",
+      "level": "info",
+      "message": "SoX drop: Sable got Blaze Diadem (Seal of Moon) from Wing Tribe Chaser."
+    },
+    {
+      "time": "20:54:36",
+      "level": "info",
+      "message": "SoX drop: Blaze Diadem (Seal of Moon) went to Yunara."
+    },
+    {
+      "time": "21:31:10",
+      "level": "info",
+      "message": "SoX drop: Kaelthor got Demon Polearm (Seal of Star) from Wing Tribe Chaser."
+    },
+    {
+      "time": "21:31:12",
+      "level": "info",
+      "message": "SoX drop: Demon Polearm (Seal of Star) went to Kaelthor."
+    }
+  ],
+  "scripts": [
+    [
+      "// ==UserScript==",
+      "// @name         OSB",
+      "// @namespace    https://github.com/corevider/osb",
+      "// @version      2.0.3",
+      "// @homepageURL  https://github.com/corevider/osb",
+      "// @updateURL    https://raw.githubusercontent.com/corevider/osb/main/osb.meta.js",
+      "// @downloadURL  https://raw.githubusercontent.com/corevider/osb/main/osb.user.js",
+      "// @description  Combat, reliable looting, potions, restocking and walk-back in one compact panel.",
+      "// @match        https://opensro.online/play*",
+      "// @run-at       document-start",
+      "// @grant        none",
+      "// @inject-into  page",
+      "// @noframes",
+      "// ==/UserScript==",
+      "void 0;"
+    ]
+  ],
+  "shots": [
+    {
+      "file": "win-status",
+      "tab": "Status",
+      "size": {
+        "width": 1224,
+        "height": 300
+      },
+      "crop": {
+        "x": 464,
+        "y": 50,
+        "width": 1984,
+        "height": 428
+      }
+    },
+    {
+      "file": "win-stats",
+      "tab": "Stats",
+      "size": {
+        "width": 1224,
+        "height": 300
+      },
+      "crop": {
+        "x": 464,
+        "y": 50,
+        "width": 1984,
+        "height": 428
+      }
+    },
+    {
+      "file": "win-sox",
+      "tab": "SoX",
+      "size": {
+        "width": 1224,
+        "height": 320
+      },
+      "crop": {
+        "x": 464,
+        "y": 50,
+        "width": 1984,
+        "height": 465
+      }
+    },
+    {
+      "file": "win-account",
+      "tab": "Account",
+      "size": {
+        "width": 1000,
+        "height": 540
+      },
+      "crop": {
+        "x": 464,
+        "y": 50,
+        "width": 1416,
+        "height": 900
+      }
+    },
+    {
+      "file": "win-scripts",
+      "tab": "Scripts",
+      "size": {
+        "width": 1224,
+        "height": 220
+      },
+      "crop": {
+        "x": 464,
+        "y": 50,
+        "width": 1984,
+        "height": 262
+      }
+    },
+    {
+      "file": "win-memory",
+      "tab": "Memory",
+      "size": {
+        "width": 1224,
+        "height": 400
+      },
+      "crop": {
+        "x": 464,
+        "y": 50,
+        "width": 1984,
+        "height": 615
+      }
+    },
+    {
+      "file": "win-log",
+      "tab": "Status",
+      "left": "Log",
+      "leftWidth": 560,
+      "size": {
+        "width": 1224,
+        "height": 470
+      },
+      "crop": {
+        "x": 0,
+        "y": 50,
+        "width": 1124,
+        "height": 745
+      }
+    }
+  ],
+  "macShots": [
+    {
+      "file": "mac-status",
+      "tab": "Status",
+      "size": {
+        "width": 1240,
+        "height": 330
+      },
+      "crop": {
+        "x": 442,
+        "y": 0,
+        "width": 2020,
+        "height": 528
+      }
+    },
+    {
+      "file": "mac-stats",
+      "tab": "Stats",
+      "size": {
+        "width": 1240,
+        "height": 330
+      },
+      "crop": {
+        "x": 442,
+        "y": 0,
+        "width": 2020,
+        "height": 528
+      }
+    },
+    {
+      "file": "mac-sox",
+      "tab": "SoX",
+      "size": {
+        "width": 1240,
+        "height": 400
+      },
+      "crop": {
+        "x": 442,
+        "y": 0,
+        "width": 2020,
+        "height": 668
+      }
+    },
+    {
+      "file": "mac-account",
+      "tab": "Account",
+      "size": {
+        "width": 1000,
+        "height": 600
+      },
+      "crop": {
+        "x": 442,
+        "y": 0,
+        "width": 1540,
+        "height": 1070
+      }
+    },
+    {
+      "file": "mac-log",
+      "tab": "Log",
+      "size": {
+        "width": 1000,
+        "height": 450
+      },
+      "crop": {
+        "x": 442,
+        "y": 0,
+        "width": 1540,
+        "height": 770
+      }
+    }
+  ]
+}

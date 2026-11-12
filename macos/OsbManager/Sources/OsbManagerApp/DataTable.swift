@@ -1,5 +1,15 @@
 import AppKit
 
+final class MenuTableView: NSTableView {
+    var menuProvider: ((Int?) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let menuProvider else { return super.menu(for: event) }
+        let clicked = row(at: convert(event.locationInWindow, from: nil))
+        return menuProvider(clicked >= 0 ? clicked : nil)
+    }
+}
+
 @MainActor
 final class DataTable: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     struct Column {
@@ -22,10 +32,15 @@ final class DataTable: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     let scrollView = NSScrollView()
-    let tableView = NSTableView()
+    let tableView = MenuTableView()
     var onSelectionChange: (() -> Void)?
     var onDoubleClick: ((Int) -> Void)?
     var onToggle: ((Int, Bool) -> Void)?
+
+    var contextMenu: ((Int?) -> NSMenu?)? {
+        get { tableView.menuProvider }
+        set { tableView.menuProvider = newValue }
+    }
 
     private let columns: [Column]
     private let hasCheckbox: Bool

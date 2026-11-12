@@ -15,6 +15,7 @@ public sealed class AppPaths
         SoxFile = Path.Combine(Root, "sox.json");
         PrivacyFile = Path.Combine(Root, "privacy.json");
         Outbox = Path.Combine(Root, "outbox");
+        Diagnostics = Path.Combine(Root, "diagnostics");
         OutboxFailed = Path.Combine(Outbox, "failed");
         Updates = Path.Combine(Root, "updates");
     }
@@ -29,6 +30,7 @@ public sealed class AppPaths
     public string SoxFile { get; }
     public string PrivacyFile { get; }
     public string Outbox { get; }
+    public string Diagnostics { get; }
     public string OutboxFailed { get; }
     public string Updates { get; }
 

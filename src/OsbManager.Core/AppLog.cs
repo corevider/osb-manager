@@ -23,6 +23,8 @@ public sealed class AppLog
     /// <summary>Raised on the thread that logged; UI subscribers must marshal to their own thread.</summary>
     public event Action<LogEntry>? Added;
 
+    public event Action<Exception>? ExceptionLogged;
+
     public IReadOnlyList<LogEntry> Recent
     {
         get { lock (sync) { return [.. recent]; } }
@@ -32,8 +34,14 @@ public sealed class AppLog
 
     public void Warn(string message) => Write("warn", message);
 
-    public void Error(string message, Exception? exception = null) =>
+    public void Error(string message, Exception? exception = null)
+    {
         Write("error", exception is null ? message : $"{message} ({exception.GetType().Name}: {exception.Message})");
+        if (exception is not null)
+        {
+            ExceptionLogged?.Invoke(exception);
+        }
+    }
 
     private void Write(string level, string message)
     {

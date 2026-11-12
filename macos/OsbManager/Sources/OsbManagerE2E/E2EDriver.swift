@@ -56,6 +56,8 @@ final class E2EDriver {
             await CacheScenario(app: app, config: config, log: log).run()
         case "scriptupdate":
             await ScriptUpdateScenario(app: app, config: config, log: log).run()
+        case "osbrun":
+            await OsbRunScenario(app: app, config: config, log: log).run()
         default:
             await full()
         }

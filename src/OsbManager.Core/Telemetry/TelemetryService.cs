@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OsbManager.Core.Telemetry.Diagnostics;
 
 namespace OsbManager.Core.Telemetry;
 
@@ -10,6 +11,8 @@ public enum DeletionResult
 }
 
 public sealed record ExportResult(bool Succeeded, byte[] Data);
+
+public sealed record DiagnosticsSetup(string Folder, PrivateTerms Terms, Func<DiagnosticEnv>? Env = null, TimeProvider? SamplerTime = null, TimeProvider? WireTime = null);
 
 /// <summary>
 /// The app-facing side of usage statistics and reports: consent changes, the background loops and the user's data
@@ -27,6 +30,7 @@ public sealed class TelemetryService : IDisposable
     private readonly TelemetryClient client;
     private readonly string appVersion;
     private readonly TimeProvider time;
+    private readonly TimeProvider wireTime;
     private readonly TelemetryScheduler scheduler;
     private readonly ReportRetryScheduler retry;
 
@@ -35,6 +39,7 @@ public sealed class TelemetryService : IDisposable
         TelemetryClient client,
         StatusRegistry statuses,
         ReportOutbox outbox,
+        DiagnosticsSetup diagnostics,
         string appVersion,
         string locale,
         TimeProvider time,
@@ -48,8 +53,17 @@ public sealed class TelemetryService : IDisposable
         this.client = client;
         this.appVersion = appVersion;
         this.time = time;
+        wireTime = diagnostics.WireTime ?? time;
         Reports = new ReportSender(client, privacy, outbox, time, random);
-        scheduler = new TelemetryScheduler(privacy, client, statusSource ?? statuses, new TelemetryPayloadBuilder(appVersion, time), appVersion, locale, time, random, log);
+        Diagnostics = new DiagnosticsHub(diagnostics.Folder, diagnostics.Terms, wireTime, () => privacy.State.Granted, (int)Math.Clamp(random() * 100, 0, 99));
+        privacy.Changed += Diagnostics.OnConsentChanged;
+        Perf = new PerfCollector();
+        Capture = new DiagnosticsCapture(Diagnostics, Perf, appVersion, wireTime, diagnostics.SamplerTime ?? TimeProvider.System);
+        Uploader = new DiagnosticsUploader(Diagnostics, Perf, diagnostics.Env ?? (() => DiagnosticEnvironment.FromThisMachine(null)), appVersion, wireTime);
+        PageBatches = new OsbPageBatchReceiver(Diagnostics, wireTime);
+        Uploader.ApplyConfig(CurrentDiagnosticsConfig());
+        Capture.Configure(CurrentDiagnosticsConfig, null, null);
+        scheduler = new TelemetryScheduler(privacy, client, statusSource ?? statuses, new TelemetryPayloadBuilder(appVersion, time), appVersion, locale, time, random, log, Diagnostics, Uploader);
         retry = new ReportRetryScheduler(outbox, Reports, time, random, log);
     }
 
@@ -57,6 +71,11 @@ public sealed class TelemetryService : IDisposable
     public StatusRegistry Statuses { get; }
     public ReportOutbox Outbox { get; }
     public ReportSender Reports { get; }
+    public DiagnosticsHub Diagnostics { get; }
+    public DiagnosticsCapture Capture { get; }
+    public DiagnosticsUploader Uploader { get; }
+    public OsbPageBatchReceiver PageBatches { get; }
+    public PerfCollector Perf { get; }
     public string? FailedDeletionInstallId { get; private set; }
     public bool DisabledByFailSafe => scheduler.DisabledByFailSafe;
 
@@ -68,13 +87,36 @@ public sealed class TelemetryService : IDisposable
     {
         scheduler.Start();
         retry.Start();
+        Capture.Start();
     }
 
     public void Stop(TimeSpan maxWait)
     {
         scheduler.Stop(maxWait);
         retry.Stop(maxWait);
+        Capture.Stop();
     }
+
+    public void ConfigureDiagnostics(IPerfSource? perfSource, Func<IReadOnlyList<string>>? terms) =>
+        Capture.Configure(CurrentDiagnosticsConfig, perfSource, terms);
+
+    public DiagnosticsConfig CurrentDiagnosticsConfig()
+    {
+        var state = Privacy.State;
+        return state.Granted && state.Config is { ClientOk: true } config && state.ConfigFetchedAt is { } fetched && time.GetUtcNow() - fetched < TelemetryLimits.ConfigMaxAge
+            ? config.Diagnostics
+            : DiagnosticsConfig.Disabled;
+    }
+
+    public void TickOsbPerf()
+    {
+        var config = CurrentDiagnosticsConfig();
+        var on = Diagnostics.Recording && config.Enabled && config.Perf
+            && DiagnosticLimiter.SampledIn(Diagnostics.Limiter.SampleDraw, config.SamplePercent);
+        PageBatches.Rotation.Tick(wireTime.GetUtcNow(), TimeSpan.FromSeconds(config.PerfIntervalSeconds), on);
+    }
+
+    public string? PreviewNextDiagnostics() => Privacy.State.Granted ? Uploader.Preview(CurrentDiagnosticsConfig()) : null;
 
     public string? PreviewNextPayload()
     {
@@ -154,8 +196,12 @@ public sealed class TelemetryService : IDisposable
 
     public void Dispose()
     {
+        Privacy.Changed -= Diagnostics.OnConsentChanged;
         scheduler.Dispose();
         retry.Dispose();
         client.Dispose();
+        PageBatches.Dispose();
+        Capture.Dispose();
+        Diagnostics.Dispose();
     }
 }

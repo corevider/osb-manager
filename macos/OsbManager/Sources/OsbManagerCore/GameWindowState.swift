@@ -31,6 +31,14 @@ public enum GameWindowState {
         return phase + light
     }
 
+    public static func visibility(hidden: Bool, minimised: Bool) -> String {
+        minimised ? "minimised" : hidden ? "hidden" : "visible"
+    }
+
+    public static func withVisibility(_ text: String, hidden: Bool, minimised: Bool) -> String {
+        hidden || minimised ? "\(text) (\(visibility(hidden: hidden, minimised: minimised)))" : text
+    }
+
     public static func botColumn(_ status: BotStatus?) -> String {
         guard let status else { return "" }
         if status.botVersion == nil { return "No bot" }

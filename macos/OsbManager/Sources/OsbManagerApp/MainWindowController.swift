@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemValidation {
-    public static let botUrl = "https://raw.githubusercontent.com/corevider/osb/main/osb.user.js"
+    public static let botUrl = BotScripts.osbUrl
 
     public let window: NSWindow
     public let tabView = NSTabView()
@@ -19,7 +19,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
     private let statsPanel = StatsPanel()
     private var soxPanel: SoxPanel!
     private let footerLabel = Layout.label("", secondary: true)
-    private let startedAt = Date()
+    private let startedAt: Date
     private var scriptsPanel: ScriptsPanel!
     private let logPanel = LogPanel()
     private var refreshTimer: Timer?
@@ -30,6 +30,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
     public init(services: AppServices, manager: GameManager) {
         self.services = services
         self.manager = manager
+        startedAt = manager.feed?.startedAt ?? Date()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 580), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
         accountPanel = AccountPanel(
@@ -81,6 +82,96 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
         banner.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
     }
 
+    public func accountMenuState(of account: Account) -> AccountMenuState {
+        if manager.views[account.id] != nil {
+            return .open
+        }
+        return manager.queue.contains(account.id) ? .queued : .closed
+    }
+
+    public func accountMenuItems(for account: Account?) -> [AccountMenuItem] {
+        guard let account else { return AccountMenu.forRoot() }
+        return AccountMenu.forAccount(account, state: accountMenuState(of: account))
+    }
+
+    public func accountMenu(for account: Account?) -> NSMenu {
+        AccountContextMenu.build(accountMenuItems(for: account), target: self, action: #selector(runAccountMenuItem(_:)))
+    }
+
+    @objc func runAccountMenuItem(_ sender: NSMenuItem) {
+        if let item = sender.representedObject as? AccountMenuItem {
+            perform(item)
+        }
+    }
+
+    public func perform(_ item: AccountMenuItem) {
+        guard item.enabled else { return }
+        guard let target = item.target else {
+            performRootAction(item.action)
+            return
+        }
+        guard let account = services.accounts.account(id: target.id) else { return }
+        switch item.action {
+        case .start: start(account, light: false)
+        case .startLight: start(account, light: true)
+        case .cancelStart: cancelStart(account)
+        case .showWindow: showWindow(of: account)
+        case .reloadWindow: manager.windows[account.id]?.reloadPage()
+        case .close: manager.close(account.id)
+        case .toggleLight: toggleLight(account)
+        case .moveUp: move(account, by: -1)
+        case .moveDown: move(account, by: 1)
+        case .remove: confirmAndRemove(account)
+        case .add, .startAll, .startAllLight, .closeAll: break
+        }
+    }
+
+    private func performRootAction(_ action: AccountMenuAction) {
+        switch action {
+        case .add: addAccount()
+        case .startAll: startAllAccounts()
+        case .startAllLight: startAllAccountsLight()
+        case .closeAll: closeAllWindows()
+        default: break
+        }
+    }
+
+    private func cancelStart(_ account: Account) {
+        guard manager.queue.remove(account.id) else { return }
+        services.log.info("\(account.name): start cancelled.")
+        refreshAll()
+    }
+
+    private func showWindow(of account: Account) {
+        manager.windows[account.id]?.show(activate: true)
+        refreshAll()
+    }
+
+    private func toggleLight(_ account: Account) {
+        if let game = manager.windows[account.id] {
+            game.setLight(!game.light)
+            refreshAll()
+            return
+        }
+        let starts = !account.startLight
+        do {
+            try services.accounts.update(id: account.id) { $0.startLight = starts }
+        } catch {
+            services.log.error("\(account.name): could not save the light mode setting", error)
+            return
+        }
+        services.log.info("\(account.name): \(starts ? "starts in light mode." : "starts with rendering on.")")
+        refreshAll()
+        if selectedAccount?.id == account.id {
+            showSelectedAccount()
+        }
+    }
+
+    private func accountForContextMenu(row: Int) -> Account? {
+        let accounts = services.accounts.accounts
+        return row < accounts.count ? accounts[row] : nil
+    }
+
     public func select(accountId: String?) {
         accountsTable.select(row: services.accounts.accounts.firstIndex { $0.id == accountId })
         showSelectedAccount()
@@ -95,16 +186,18 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
         accountsTable.setRows(
             accounts.map { [manager.listText(for: $0)] },
             styles: accounts.map { account in
-                guard let game = manager.windows[account.id] else { return .dimmed }
+                guard let game = manager.views[account.id] else { return .dimmed }
                 return game.inGame ? .positive : .normal
             }
         )
         statusPanel.show(accounts.map(manager.statusRow(for:)))
         statsPanel.show(StatsTable.rows(entries: statsEntries(), drops: services.sox.drops, since: startedAt))
-        let cacheText = services.settings.shareGameFiles ? services.cacheIfCreated.map { CacheText.line($0.counters) } : nil
-        footerLabel.stringValue = FooterText.line(botVersion: accounts.lazy.compactMap { self.manager.windows[$0.id]?.status?.botVersion }.first, cache: cacheText)
+        let counters = manager.feed?.cache ?? services.cacheIfCreated?.counters
+        let cacheText = services.settings.shareGameFiles ? counters.map { CacheText.line($0) } : nil
+        let views = manager.views
+        footerLabel.stringValue = FooterText.line(botVersion: accounts.lazy.compactMap { views[$0.id]?.status?.botVersion }.first, cache: cacheText)
         let inGame = manager.inGameCount
-        countLabel.stringValue = "\(inGame)/\(accounts.count) in game · \(manager.windows.count) open"
+        countLabel.stringValue = "\(inGame)/\(accounts.count) in game · \(views.count) open"
         countLabel.textColor = inGame > 0 ? .systemGreen : .labelColor
         if let index = AppSettings.frameLimits.firstIndex(of: services.settings.frameLimit), framePopup.indexOfSelectedItem != index {
             framePopup.selectItem(at: index)
@@ -148,6 +241,12 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
         scriptsPanel.show(services.scripts.scripts)
     }
 
+    public func setOsbInstallLine(_ text: String?) {
+        scriptsPanel.setInstallLine(text)
+    }
+
+    public var osbInstallLineText: String { scriptsPanel.installLineText }
+
     public func removeAccount(_ account: Account) async {
         manager.forget(account.id)
         await manager.closeAndWait(account.id)
@@ -190,8 +289,9 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
     }
 
     private func statsEntries() -> [StatsEntry] {
-        services.accounts.accounts.compactMap { account in
-            guard let window = manager.windows[account.id], let status = window.status, let session = status.session else { return nil }
+        let views = manager.views
+        return services.accounts.accounts.compactMap { account in
+            guard let window = views[account.id], let status = window.status, let session = status.session else { return nil }
             return StatsEntry(account: account.name, character: status.character ?? "", session: session)
         }
     }
@@ -213,6 +313,10 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
 
     @objc func removeSelectedAccount() {
         guard let account = selectedAccount else { return }
+        confirmAndRemove(account)
+    }
+
+    private func confirmAndRemove(_ account: Account) {
         manager.forget(account.id)
         let closing = manager.windows[account.id] != nil ? "Its game window is closed first. " : ""
         let detail = closing + "Its browser data (cookies, saved logins, local storage and the game's own cache for this account) and its saved password are deleted as well. This cannot be undone."
@@ -285,6 +389,8 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
     }
 
     public func installScript(fromUrl address: String) async -> InstalledScript? {
+        let job = services.scriptJobs.begin()
+        defer { job.end() }
         do {
             let script = try await services.scripts.install(fromUrl: address, downloader: services.downloader)
             services.log.info("Installed \(script.meta.name) \(script.meta.version) from \(address).")
@@ -300,6 +406,8 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
         let selected = scriptsPanel.selectedRows.filter { $0 < installed.count }.map { installed[$0] }
         let targets = selected.isEmpty ? installed : selected
         Task {
+            let job = services.scriptJobs.begin()
+            defer { job.end() }
             for script in targets {
                 guard let source = script.updateSource else {
                     services.log.warn("\(script.meta.name) has no download address; add the new file instead.")
@@ -354,6 +462,12 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
             : "Game files are no longer shared between accounts.")
     }
 
+    @objc public func toggleUpdateOsbAutomatically() {
+        services.settings.updateOsbAutomatically.toggle()
+        saveSettings()
+        services.log.info("Update OSB automatically: \(services.settings.updateOsbAutomatically ? "on" : "off").")
+    }
+
     @objc func clearSharedCache() {
         if !manager.windows.isEmpty {
             Dialogs.info("Close all game windows first.")
@@ -389,6 +503,9 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
         case #selector(toggleRestartAfterRendererFailure):
             item.state = services.settings.restartAfterRendererFailure ? .on : .off
             return true
+        case #selector(toggleUpdateOsbAutomatically):
+            item.state = services.settings.updateOsbAutomatically ? .on : .off
+            return true
         case #selector(removeSelectedAccount), #selector(moveSelectedUp), #selector(moveSelectedDown), #selector(startSelectedAccount), #selector(startSelectedAccountLight), #selector(closeSelectedWindow):
             return selectedAccount != nil
         default:
@@ -408,6 +525,10 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
             Dialogs.info("Select an account first.")
             return
         }
+        start(account, light: light)
+    }
+
+    private func start(_ account: Account, light: Bool) {
         manager.startOrShow(account.id, light: light)
         refreshAll()
     }
@@ -421,6 +542,10 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
 
     private func moveSelected(by offset: Int) {
         guard let account = selectedAccount else { return }
+        move(account, by: offset)
+    }
+
+    private func move(_ account: Account, by offset: Int) {
         do {
             if try services.accounts.move(id: account.id, by: offset) {
                 manager.queue.sort(by: services.accounts.accounts.map(\.id))
@@ -576,6 +701,15 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
     }
 
     private func wire() {
+        accountsTable.contextMenu = { [unowned self] row in
+            guard let row else { return self.accountMenu(for: nil) }
+            guard let account = self.accountForContextMenu(row: row) else { return nil }
+            self.accountsTable.select(row: row)
+            return self.accountMenu(for: account)
+        }
+        statusPanel.table.contextMenu = { [unowned self] row in
+            row.flatMap { self.accountForContextMenu(row: $0) }.map { self.accountMenu(for: $0) }
+        }
         accountsTable.onSelectionChange = { [unowned self] in self.showSelectedAccount() }
         accountsTable.onDoubleClick = { [unowned self] row in
             guard row < self.services.accounts.accounts.count else { return }
@@ -595,26 +729,31 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
         services.scripts.onChange = { [weak self] in self?.refreshScripts() }
         services.sox.onAdded = { [weak self] _ in self?.refreshSox(); self?.refreshAll() }
         services.sox.onUpdated = { [weak self] _ in self?.refreshSox() }
+        manager.onChange = { [weak self] in self?.refreshAll() }
+        refreshScripts()
+        refreshSox()
+        showSelectedAccount()
+        if let feed = manager.feed {
+            logPanel.replace(with: feed.log)
+            return
+        }
         services.log.onAdded = { [weak self] entry in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.logPanel.append(entry) }
             }
         }
         logPanel.replace(with: services.log.recent)
-        manager.onChange = { [weak self] in self?.refreshAll() }
-        refreshScripts()
-        refreshSox()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 #if DEBUG
                 LatencyRecorder.shared?.recordTimerFire()
                 #endif
                 self?.manager.startQueued()
+                self?.manager.watchPages()
                 self?.refreshAll()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
-        showSelectedAccount()
     }
 }

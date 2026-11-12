@@ -1,10 +1,11 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace OsbManager.Core.Scripts;
 
 /// <summary>Wraps a userscript so it runs only on its URLs, at its run-at time, with a small GM_* surface.</summary>
-public static class ScriptInjection
+public static partial class ScriptInjection
 {
     public static string Build(UserScriptMeta meta, string source)
     {
@@ -20,6 +21,7 @@ public static class ScriptInjection
         });
         var script = new StringBuilder(source.Length + 2048);
         script.Append("(() => {\n");
+        script.Append("//# sourceURL=osb-manager-script/").Append(SourceName(meta.Name)).Append(".user.js\n");
         script.Append("const meta = ").Append(settings).Append(";\n");
         script.Append(Prelude);
         script.Append("const run = () => {\n").Append(source).Append("\n};\n");
@@ -27,6 +29,15 @@ public static class ScriptInjection
         script.Append("})();\n");
         return script.ToString();
     }
+
+    private static string SourceName(string? name)
+    {
+        var safe = UnsafeSourceCharacters().Replace((name ?? "").Trim(), "-");
+        return safe.Length == 0 ? "script" : safe.Length > 64 ? safe[..64] : safe;
+    }
+
+    [GeneratedRegex("[^A-Za-z0-9._-]", RegexOptions.CultureInvariant)]
+    private static partial Regex UnsafeSourceCharacters();
 
     private const string Prelude = """
         if (meta.noFrames && window.top !== window) return;

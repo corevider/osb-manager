@@ -8,6 +8,7 @@ using OsbManager.Core.Accounts;
 using OsbManager.Core.Rendering;
 using OsbManager.Core.Status;
 using OsbManager.Core.Telemetry;
+using OsbManager.Core.Telemetry.Diagnostics;
 using OsbManager.UI;
 
 namespace OsbManager.Browser;
@@ -15,7 +16,7 @@ namespace OsbManager.Browser;
 internal sealed record PageMemory(long? JsHeapUsed, long? JsHeapTotal, long? WasmBytes, int WasmMemories);
 
 /// <summary>One account's game page in its own WebView2 profile.</summary>
-internal sealed class GameWindow : Form
+internal sealed class GameWindow : Form, IGameView
 {
     private static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(5);
 
@@ -31,13 +32,21 @@ internal sealed class GameWindow : Form
 
     private readonly CredentialGate credentialGate = new();
     private readonly RendererRecovery recovery;
+    private readonly PageHealth health;
+    private readonly LoginWatch login = new();
     private string? failure;
     private bool skipClosePrompt;
+    private DateTime? hangSince;
+    private string? learnedCharacter;
+    private bool pageDiagnosticsOn;
+    private long pagePerfAsk;
+    private bool botSeenSinceNavigation;
 
-    public GameWindow(AppServices services, Account account, bool light, RendererRecovery recovery)
+    public GameWindow(AppServices services, Account account, bool light, RendererRecovery recovery, PageHealth health)
     {
         this.services = services;
         this.recovery = recovery;
+        this.health = health;
         Account = account;
         Light = light;
         Text = account.Name + " · " + AppIdentity.Name;
@@ -61,7 +70,7 @@ internal sealed class GameWindow : Form
     public Account Account { get; }
     public bool Light { get; private set; }
 
-    /// <summary>Raised when the renderer could not start after a reload and the window should be opened again.</summary>
+    /// <summary>Raised when the renderer could not start or the page did not respond after a reload, and the window should be opened again.</summary>
     public event EventHandler? RestartRequested;
 
     /// <summary>The last report from the page, or null when it is older than a few seconds.</summary>
@@ -77,10 +86,15 @@ internal sealed class GameWindow : Form
             {
                 return failure;
             }
+            var current = Status;
             var normal = NormalStateText();
-            return recovery.StateText(Status, services.Renderers.IsWaiting(Account.Id), normal) ?? normal;
+            var withLogin = login.StateText(current, Account.AutoLogin, Account.HasCredentials, normal) ?? normal;
+            var withRenderer = recovery.StateText(current, services.Renderers.IsWaiting(Account.Id), withLogin) ?? withLogin;
+            return health.StateText(withRenderer, current?.InWorld == true) ?? withRenderer;
         }
     }
+
+    private bool AutoLoginWanted => Account.AutoLogin && Account.HasCredentials;
 
     private string NormalStateText()
     {
@@ -130,14 +144,42 @@ internal sealed class GameWindow : Form
         core.PostWebMessageAsJson(JsonSerializer.Serialize(new
         {
             type = "auto-login",
-            enabled = Account.AutoLogin && Account.HasCredentials,
+            enabled = AutoLoginWanted,
             character = Account.Character,
             server = Account.Server,
         }));
     }
 
+    private bool Recording => services.Telemetry.Diagnostics.Recording;
+
+    private DiagnosticsCapture Diag => services.Telemetry.Capture;
+
+    private int? Ordinal => services.Ordinals.Of(Account.Id);
+
+    private DiagnosticContext Context() => DiagnosticContexts.For(Status ?? status, Light, Hidden, Ordinal, services.PerfWindows.Open);
+
+    private void Note(string level, string code)
+    {
+        if (Recording)
+        {
+            Diag.Trail(level, code, Ordinal);
+        }
+    }
+
+    private void NoteHang(string outcome, int waitedSeconds)
+    {
+        if (Recording)
+        {
+            Diag.Unresponsive(outcome, waitedSeconds, Context());
+        }
+    }
+
     public void SetLight(bool on)
     {
+        if (on && !Light)
+        {
+            Note("info", TrailCodes.SettingsLightOn);
+        }
         Light = on;
         lightItem.Checked = on;
         ApplyLight();
@@ -164,6 +206,7 @@ internal sealed class GameWindow : Form
     protected override async void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        health.PageStarted();
         try
         {
             await StartAsync();
@@ -193,6 +236,10 @@ internal sealed class GameWindow : Form
     {
         services.Renderers.Forget(Account.Id);
         services.Telemetry.Statuses.Remove(Account.Id);
+        if (Ordinal is { } ordinal)
+        {
+            services.Telemetry.PageBatches.Rotation.Gone(ordinal);
+        }
         base.OnFormClosed(e);
     }
 
@@ -230,12 +277,20 @@ internal sealed class GameWindow : Form
         new AssetInterceptor(environment, services.Cache, services.Log).Attach(core);
         core.WebMessageReceived += OnWebMessageReceived;
         core.NewWindowRequested += OnNewWindowRequested;
-        core.NavigationStarting += (_, _) => services.Renderers.Forget(Account.Id);
+        core.NavigationStarting += (_, _) =>
+        {
+            pageDiagnosticsOn = false;
+            pagePerfAsk = 0;
+            botSeenSinceNavigation = false;
+            services.Renderers.Forget(Account.Id);
+            health.PageStarted();
+        };
         core.NavigationCompleted += (_, _) =>
         {
             ApplyLight();
             ApplyFrameLimit();
             SendAutoLogin();
+            SyncPageDiagnostics();
         };
         core.ProcessFailed += OnProcessFailed;
         await RegisterScriptsAsync();
@@ -386,6 +441,16 @@ internal sealed class GameWindow : Form
             return;
         }
         var json = e.WebMessageAsJson;
+        if (OsbPageBatch.IsBatch(json))
+        {
+            services.Telemetry.PageBatches.Offer(json, Ordinal);
+            return;
+        }
+        if (OsbPageBatch.IsPerf(json))
+        {
+            services.Telemetry.PageBatches.OfferPerf(json, Ordinal, status?.BotVersion);
+            return;
+        }
         if (RendererSlotMessage.TryParse(json) is { } slot)
         {
             OnRendererSlot(slot);
@@ -403,15 +468,36 @@ internal sealed class GameWindow : Form
         if (report.LoginStage != status?.LoginStage && report.LoginStage == "failed")
         {
             services.Log.Warn($"{Account.Name}: auto login stopped. {report.LoginMessage}");
+            Note("warn", TrailCodes.LoginFailed(status?.LoginStage));
         }
         if (report.Linked && status?.Linked != true)
         {
             services.Log.Info($"{Account.Name}: linked to the game.");
         }
         LogRenderer(report);
+        if (report.GpuVendor is { } vendor && Recording)
+        {
+            services.Telemetry.Diagnostics.GpuVendor = vendor;
+        }
+        if (report.BotVersion is not null && Ordinal is { } present)
+        {
+            services.Telemetry.PageBatches.Rotation.Present(present, services.WireTime.GetUtcNow());
+        }
+        if (report.BotVersion is not null && !botSeenSinceNavigation)
+        {
+            botSeenSinceNavigation = true;
+            pageDiagnosticsOn = false;
+            pagePerfAsk = 0;
+            SyncPageDiagnostics();
+        }
         if (report.Character is { } character)
         {
             services.Characters[Account.Id] = character;
+            if (!string.Equals(character, learnedCharacter, StringComparison.Ordinal))
+            {
+                learnedCharacter = character;
+                Diag.Learn(character);
+            }
         }
         foreach (var drop in report.Drops)
         {
@@ -433,6 +519,17 @@ internal sealed class GameWindow : Form
             }
         }
         var step = recovery.Observe(status, report, services.Settings.RestartAfterRendererFailure);
+        if (health.Reported(report.InWorld))
+        {
+            services.Log.Info(PageTexts.Responding(Account.Name));
+            Note("info", TrailCodes.WindowResponding);
+            NoteHang("responded", hangSince is { } since ? (int)Math.Clamp((DateTime.UtcNow - since).TotalSeconds, 0, 86400) : 0);
+            hangSince = null;
+        }
+        if (report.InWorld && status?.InWorld != true)
+        {
+            services.Log.Info(LoginTexts.InWorld(Account.Name, report.Character));
+        }
         status = report;
         statusAt = DateTime.UtcNow;
         services.Telemetry.Statuses.Publish(Account.Id, Account.Server, report, services.Time.GetUtcNow());
@@ -440,6 +537,93 @@ internal sealed class GameWindow : Form
         failure = null;
         Text = Account.Name + (report.Character is { } name ? $" ({name})" : "") + " · " + AppIdentity.Name;
         Recover(step);
+        WatchLogin(report);
+    }
+
+    private void WatchLogin(BotStatus report)
+    {
+        switch (login.Observe(report, AutoLoginWanted))
+        {
+            case LoginAction.SendSettings:
+                SendAutoLogin();
+                break;
+            case LoginAction.Reload:
+                services.Log.Warn(LoginTexts.Reloading(Account.Name, login.Reason(report, Account.AutoLogin, Account.HasCredentials)));
+                Note("warn", TrailCodes.LoginReload);
+                ReloadPage();
+                break;
+        }
+        if (login.TakeWarning(report))
+        {
+            services.Log.Warn(LoginTexts.Warning(Account.Name, login.Reason(report, Account.AutoLogin, Account.HasCredentials)));
+        }
+    }
+
+    /// <summary>Checks this window's page once a second and recovers this window only when it stopped responding.</summary>
+    public void WatchPage()
+    {
+        SyncPageDiagnostics();
+        var step = health.Tick();
+        if (step == PageStep.None)
+        {
+            return;
+        }
+        var line = PageTexts.Step(Account.Name, step, health.LastProblem);
+        var silent = health.LastProblem == PageProblem.Silent;
+        switch (step)
+        {
+            case PageStep.Reload:
+                services.Log.Warn(line);
+                Note("warn", TrailCodes.WindowReload);
+                if (silent)
+                {
+                    NoteHang("reloaded", (int)PageHealth.SilenceLimit.TotalSeconds);
+                }
+                ReloadPage();
+                break;
+            case PageStep.Restart:
+                services.Log.Warn(line);
+                Note("warn", TrailCodes.WindowRestart);
+                if (silent)
+                {
+                    NoteHang("restarted", (int)PageHealth.ProofLimit.TotalSeconds);
+                }
+                RestartRequested?.Invoke(this, EventArgs.Empty);
+                break;
+            default:
+                services.Log.Error(line);
+                Note("error", TrailCodes.WindowGaveUp);
+                if (silent)
+                {
+                    NoteHang("gave_up", (int)PageHealth.ProofLimit.TotalSeconds);
+                }
+                break;
+        }
+    }
+
+    private void SyncPageDiagnostics()
+    {
+        if (core is null || !IsGamePage(core.Source))
+        {
+            return;
+        }
+        var wanted = Recording;
+        var ask = wanted ? services.Telemetry.PageBatches.Rotation.Wanted(Ordinal, services.WireTime.GetUtcNow()) : 0;
+        if (wanted == pageDiagnosticsOn && ask == pagePerfAsk)
+        {
+            return;
+        }
+        try
+        {
+            core.PostWebMessageAsJson(OsbPageBatch.Switch(wanted, ask != 0));
+            pageDiagnosticsOn = wanted;
+            pagePerfAsk = ask;
+        }
+        catch (Exception e) when (e is InvalidOperationException or COMException)
+        {
+            pageDiagnosticsOn = false;
+            pagePerfAsk = 0;
+        }
     }
 
     private void LogRenderer(BotStatus report)
@@ -447,10 +631,16 @@ internal sealed class GameWindow : Form
         if (report.GpuRetries > 0 && report.GpuRetries != (status?.GpuRetries ?? 0) && report.GpuFailed is null)
         {
             services.Log.Warn(RendererTexts.Retrying(Account.Name, report.GpuRetries, report.GpuRetryLimit, report.GpuRetryIn));
+            Note("warn", TrailCodes.GpuRetry);
         }
         if (report.GpuFailed is not null && status?.GpuFailed is null)
         {
             services.Log.Error(RendererTexts.Failed(Account.Name, report.GpuFailed));
+            if (Recording)
+            {
+                Diag.Trail("error", TrailCodes.GpuFailed(report.GpuFailed), Ordinal);
+                Diag.GpuFailed(report.GpuFailed, report.GpuRetries, Context());
+            }
         }
     }
 
@@ -464,15 +654,18 @@ internal sealed class GameWindow : Form
         if (step == RendererStep.GiveUp)
         {
             services.Log.Error(line);
+            Note("error", TrailCodes.WindowGaveUp);
             return;
         }
         services.Log.Warn(line);
         if (step == RendererStep.Reload)
         {
+            Note("warn", TrailCodes.WindowReload);
             ReloadPage();
         }
         else
         {
+            Note("warn", TrailCodes.WindowRestart);
             RestartRequested?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -542,6 +735,10 @@ internal sealed class GameWindow : Form
 
     private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
     {
+        if (Recording)
+        {
+            Diag.ProcessFailed(e.ProcessFailedKind.ToString(), e.Reason.ToString(), e.ExitCode, e.ProcessDescription, Context());
+        }
         switch (e.ProcessFailedKind)
         {
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
@@ -550,8 +747,18 @@ internal sealed class GameWindow : Form
                 break;
             case CoreWebView2ProcessFailedKind.RenderProcessExited:
                 services.Renderers.Forget(Account.Id);
-                failure = "Page crashed, use Reload";
-                break;
+                health.MarkCrashed();
+                services.Log.Error($"{Account.Name}: the page process ended ({e.ProcessFailedKind}, {e.Reason}).");
+                Note("error", TrailCodes.WindowRendererExited);
+                return;
+            case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+                if (health.MarkUnresponsive())
+                {
+                    services.Log.Warn(PageTexts.Unresponsive(Account.Name, e.ProcessFailedKind.ToString()));
+                    hangSince = DateTime.UtcNow;
+                    Note("warn", TrailCodes.WindowUnresponsive);
+                }
+                return;
             default:
                 services.Log.Warn($"{Account.Name}: browser process problem ({e.ProcessFailedKind}).");
                 return;

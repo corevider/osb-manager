@@ -1,4 +1,4 @@
-using Microsoft.Web.WebView2.Core;
+﻿using Microsoft.Web.WebView2.Core;
 using OsbManager.Core;
 
 namespace OsbManager.Browser;
@@ -18,6 +18,8 @@ internal sealed class BrowserHost
     private readonly AppPaths paths;
     private readonly int? debugPort;
     private Task<CoreWebView2Environment>? environment;
+
+    public BrowserProcessCache ProcessCache { get; } = new();
 
     public BrowserHost(AppPaths paths, int? debugPort)
     {
@@ -50,7 +52,11 @@ internal sealed class BrowserHost
     }
 
     /// <summary>Forgets the environment after its browser process exited, so the next window starts a new one.</summary>
-    public void Reset() => environment = null;
+    public void Reset()
+    {
+        environment = null;
+        ProcessCache.Forget();
+    }
 
     /// <summary>Marks a profile for deletion; WebView2 removes its folder once nothing uses it.</summary>
     public async Task DeleteProfileAsync(IntPtr parentWindow, string profileName)
@@ -63,10 +69,12 @@ internal sealed class BrowserHost
         controller.CoreWebView2.Profile.Delete();
     }
 
-    private Task<CoreWebView2Environment> Create()
+    private async Task<CoreWebView2Environment> Create()
     {
         var arguments = debugPort is { } port ? $"{Arguments} --remote-debugging-port={port}" : Arguments;
         var options = new CoreWebView2EnvironmentOptions(arguments) { AreBrowserExtensionsEnabled = false };
-        return CoreWebView2Environment.CreateAsync(null, paths.WebViewData, options);
+        var created = await CoreWebView2Environment.CreateAsync(null, paths.WebViewData, options);
+        ProcessCache.Attach(created);
+        return created;
     }
 }

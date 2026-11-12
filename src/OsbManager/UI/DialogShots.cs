@@ -11,38 +11,28 @@ internal static class DialogShots
     public static void Run(AppServices services, string directory)
     {
         Directory.CreateDirectory(directory);
-        foreach (var language in new[] { "en", "tr" })
-        {
-            CultureInfo.CurrentUICulture = new CultureInfo(language);
-            var main = new MainForm(services, StartupOptions.Parse([]));
-            Capture(main, Path.Combine(directory, $"first-run-{language}.png"));
-        }
-        foreach (var language in new[] { "en", "tr" })
-        {
-            var culture = new CultureInfo(language);
-            CultureInfo.CurrentUICulture = culture;
-            var texts = PrivacyTexts.For(culture);
+        var texts = PrivacyTexts.English;
+        Capture(new MainForm(services, StartupOptions.Parse([])), Path.Combine(directory, "first-run.png"));
 
-            services.Telemetry.Privacy.Withdraw();
-            Capture(new PrivacyForm(services.Telemetry, texts), Path.Combine(directory, $"privacy-{language}-off.png"));
+        services.Telemetry.WithdrawAsync().GetAwaiter().GetResult();
+        Capture(new PrivacyForm(services.Telemetry, texts), Path.Combine(directory, "privacy-off.png"));
 
-            services.Telemetry.Accept(characters: true);
-            services.Telemetry.Statuses.Publish("sample-a", "ExampleServer", Sample("ExampleHero"), services.Time.GetUtcNow());
-            services.Telemetry.Statuses.Publish("sample-b", "ExampleServer", Sample("ExampleMage") with { Hunting = false, TownTrip = true, Level = 64 }, services.Time.GetUtcNow());
-            var privacy = new PrivacyForm(services.Telemetry, texts);
-            privacy.ExpandPreview();
-            Capture(privacy, Path.Combine(directory, $"privacy-{language}-on.png"));
-            services.Telemetry.Privacy.Withdraw();
+        services.Telemetry.Accept(characters: true);
+        services.Telemetry.Statuses.Publish("sample-a", "ExampleServer", Sample("ExampleHero"), services.Time.GetUtcNow());
+        services.Telemetry.Statuses.Publish("sample-b", "ExampleServer", Sample("ExampleMage") with { Hunting = false, TownTrip = true, Level = 64 }, services.Time.GetUtcNow());
+        var privacy = new PrivacyForm(services.Telemetry, texts);
+        privacy.ExpandPreview();
+        Capture(privacy, Path.Combine(directory, "privacy-on.png"));
+        services.Telemetry.WithdrawAsync().GetAwaiter().GetResult();
 
-            var diagnostics = ReportDiagnostics.Build(
-                AppServices.AppVersion, Environment.OSVersion.Version.ToString(), System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
-                [WindowDiagnostics.From(Sample("x"), false), WindowDiagnostics.From(new BotStatus { Phase = "signed-out", LoginStage = "server", LoginMessage = "waiting for the server list" }, true)],
-                [new ScriptDiagnostics("OSB", "2.0.4")]);
-            var report = new ReportForm(services.Telemetry, texts, AppServices.AppVersion, language, diagnostics, []);
-            report.SetDescription(language == "tr" ? "Şehir seyahatinden sonra bot duruyor." : "The bot stops after the town trip.");
-            report.SetScreenshotForPreview(SamplePicture());
-            Capture(report, Path.Combine(directory, $"report-{language}.png"));
-        }
+        var diagnostics = ReportDiagnostics.Build(
+            AppServices.AppVersion, Environment.OSVersion.Version.ToString(), System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+            [WindowDiagnostics.From(Sample("x"), false), WindowDiagnostics.From(new BotStatus { Phase = "signed-out", LoginStage = "server", LoginMessage = "waiting for the server list" }, true)],
+            [new ScriptDiagnostics("OSB", "2.0.4")]);
+        var report = new ReportForm(services.Telemetry, texts, AppServices.AppVersion, CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, diagnostics, []);
+        report.SetDescription("The bot stops after the town trip.");
+        report.SetScreenshotForPreview(SamplePicture());
+        Capture(report, Path.Combine(directory, "report.png"));
     }
 
     private static BotStatus Sample(string character) => new()

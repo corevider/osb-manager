@@ -4,8 +4,8 @@ namespace OsbManager.Core.Telemetry;
 
 public static class TelemetryLimits
 {
-    public const int ConsentVersion = 1;
-    public const string ConsentTextId = "2026-11-04.1";
+    public const int ConsentVersion = 2;
+    public const string ConsentTextId = "2026-11-12.1";
     public const int MinIntervalSeconds = 300;
     public const int MaxIntervalSeconds = 86400;
     public const int DefaultIntervalSeconds = 600;
@@ -32,9 +32,19 @@ public static class TelemetryLimits
 }
 
 /// <summary>What the server's GET /v1/config says. A missing or malformed answer is <see cref="Disabled"/>.</summary>
-public sealed record TelemetryConfig(bool TelemetryEnabled, int IntervalSeconds, bool ReportsEnabled, bool ScreenshotsEnabled, bool ClientOk, string? Message)
+public sealed record TelemetryConfig(
+    bool TelemetryEnabled,
+    int IntervalSeconds,
+    bool ReportsEnabled,
+    bool ScreenshotsEnabled,
+    bool ClientOk,
+    string? Message,
+    DiagnosticsConfig? DiagnosticsBlock = null)
 {
     public static TelemetryConfig Disabled { get; } = new(false, TelemetryLimits.DefaultIntervalSeconds, false, false, true, null);
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DiagnosticsConfig Diagnostics => DiagnosticsBlock ?? DiagnosticsConfig.Disabled;
 
     public static TelemetryConfig? TryParse(ReadOnlySpan<byte> json)
     {
@@ -61,7 +71,8 @@ public sealed record TelemetryConfig(bool TelemetryEnabled, int IntervalSeconds,
                 reportsEnabled,
                 screenshots,
                 clientOk,
-                message);
+                message,
+                DiagnosticsConfig.TryRead(root));
         }
         catch (JsonException)
         {
@@ -87,5 +98,48 @@ public sealed record TelemetryConfig(bool TelemetryEnabled, int IntervalSeconds,
     {
         var cleaned = new string(text.Where(c => !char.IsControl(c)).Take(TelemetryLimits.MaxMessageLength).ToArray()).Trim();
         return cleaned.Length == 0 ? null : cleaned;
+    }
+}
+
+public sealed record DiagnosticsConfig(bool Enabled, bool Perf, int IntervalSeconds, int PerfIntervalSeconds, int SamplePercent)
+{
+    public const int MinIntervalSeconds = 600;
+    public const int MinPerfIntervalSeconds = 1800;
+    public const int MaxIntervalSeconds = 86400;
+
+    public static DiagnosticsConfig Disabled { get; } = new(false, false, MinIntervalSeconds, MinPerfIntervalSeconds, 100);
+
+    public static DiagnosticsConfig? TryRead(JsonElement root)
+    {
+        if (!root.TryGetProperty("diagnostics", out var block) || block.ValueKind != JsonValueKind.Object
+            || !Flag(block, "enabled", out var enabled) || !Flag(block, "perf", out var perf)
+            || !Number(block, "interval_s", out var interval) || !Number(block, "perf_interval_s", out var perfInterval)
+            || !Number(block, "sample_pct", out var sample))
+        {
+            return null;
+        }
+        return new DiagnosticsConfig(
+            enabled,
+            perf,
+            (int)Math.Clamp(interval, MinIntervalSeconds, MaxIntervalSeconds),
+            (int)Math.Clamp(perfInterval, MinPerfIntervalSeconds, MaxIntervalSeconds),
+            (int)Math.Clamp(sample, 0, 100));
+    }
+
+    private static bool Flag(JsonElement parent, string name, out bool value)
+    {
+        value = false;
+        if (!parent.TryGetProperty(name, out var element) || element.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+        value = element.GetBoolean();
+        return true;
+    }
+
+    private static bool Number(JsonElement parent, string name, out long value)
+    {
+        value = 0;
+        return parent.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out value);
     }
 }

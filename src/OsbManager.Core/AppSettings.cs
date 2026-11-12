@@ -9,6 +9,13 @@ public enum BotNoticeChoice
     Replaced,
 }
 
+public enum OsbFirstInstallState
+{
+    Skipped,
+    Pending,
+    Done,
+}
+
 /// <summary>App-wide preferences kept in settings.json.</summary>
 public sealed class AppSettings
 {
@@ -29,6 +36,8 @@ public sealed class AppSettings
     /// <summary>Looks for a signed OSB Manager release a while after start and every few hours. Off means no update requests.</summary>
     public bool CheckForUpdates { get; set; } = true;
 
+    public bool UpdateOsbAutomatically { get; set; } = true;
+
     /// <summary>The SoX list hides Seal of Star entries; they are still recorded.</summary>
     public bool HideStarSox { get; set; }
 
@@ -36,12 +45,15 @@ public sealed class AppSettings
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public BotNoticeChoice BotNotice { get; set; } = BotNoticeChoice.Undecided;
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public OsbFirstInstallState OsbFirstInstall { get; set; } = OsbFirstInstallState.Skipped;
+
     public static AppSettings Load(string path)
     {
         AppSettings settings;
         try
         {
-            settings = JsonFile.Read<AppSettings>(path) ?? new AppSettings();
+            settings = JsonFile.Read<AppSettings>(path) ?? new AppSettings { OsbFirstInstall = OsbFirstInstallState.Pending };
         }
         catch (System.Text.Json.JsonException)
         {

@@ -5,6 +5,12 @@ public struct LogEntry: Equatable, Sendable {
     public let level: String
     public let message: String
 
+    public init(time: Date, level: String, message: String) {
+        self.time = time
+        self.level = level
+        self.message = message
+    }
+
     public var text: String {
         "[\(LogEntry.clockFormatter.string(from: time))] \(level): \(message)"
     }

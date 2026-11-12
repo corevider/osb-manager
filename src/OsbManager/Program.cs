@@ -37,6 +37,7 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
         using var services = AppServices.Create(paths, options);
+        CrashHooks.Install(services);
 #if DEBUG
         if (TelemetryTestSwitches.DialogShots is { } shots)
         {

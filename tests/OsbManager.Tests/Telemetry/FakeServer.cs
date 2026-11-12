@@ -24,6 +24,9 @@ internal sealed class FakeServer : HttpMessageHandler
 {
     public const string ConfigEnabled = """{"schema":1,"telemetry":{"enabled":true,"interval_s":600},"reports":{"enabled":true,"screenshots":true},"client_ok":true,"message":null}""";
 
+    public static string ConfigWithDiagnostics(bool enabled = true, bool perf = true, int interval = 600, int perfInterval = 1800, int sample = 100) =>
+        $$$"""{"schema":1,"telemetry":{"enabled":true,"interval_s":600},"reports":{"enabled":true,"screenshots":true},"client_ok":true,"message":null,"diagnostics":{"enabled":{{{enabled.ToString().ToLowerInvariant()}}},"perf":{{{perf.ToString().ToLowerInvariant()}}},"interval_s":{{{interval}}},"perf_interval_s":{{{perfInterval}}},"sample_pct":{{{sample}}}}}""";
+
     private readonly TimeProvider time;
     private readonly object sync = new();
     private readonly List<SeenRequest> seen = [];
@@ -37,6 +40,7 @@ internal sealed class FakeServer : HttpMessageHandler
         Route("POST /v1/installs", _ => Json(HttpStatusCode.Created, """{"install_id":"x","status":"quarantined"}"""));
         Route("PUT /v1/installs/me/consent", _ => new HttpResponseMessage(HttpStatusCode.NoContent));
         Route("POST /v1/telemetry", _ => Json(HttpStatusCode.Accepted, """{"accepted":1,"next_after_s":600}"""));
+        Route("POST /v1/diagnostics", _ => Json(HttpStatusCode.Accepted, """{"accepted_events":1,"accepted_perf":0,"next_after_s":600}"""));
         Route("POST /v1/reports", _ => Json(HttpStatusCode.Created, """{"code":"R-7K3Q9XAB","screenshot":"none"}"""));
         Route("DELETE /v1/installs/me", _ => new HttpResponseMessage(HttpStatusCode.NoContent));
         Route("GET /v1/installs/me/export", _ => Json(HttpStatusCode.OK, """{"install":{}}"""));

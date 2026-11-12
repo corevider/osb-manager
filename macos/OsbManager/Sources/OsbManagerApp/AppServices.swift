@@ -21,6 +21,7 @@ public final class AppServices {
     public private(set) var rangeFetcher: RangeFetcher = URLSessionRangeFetcher()
     private var cache: SharedAssetCache?
     public let downloader: ScriptDownloading = HttpScriptDownloader()
+    public let scriptJobs = ScriptJobs()
     private let instanceLock: InstanceLock
 
     private init(paths: AppPaths, log: AppLog, accounts: AccountStore, scripts: ScriptStore, settings: AppSettings, library: PageScriptLibrary, sox: SoxLog, credentials: CredentialStore, instanceLock: InstanceLock) {
@@ -36,7 +37,7 @@ public final class AppServices {
         self.instanceLock = instanceLock
     }
 
-    public static func create(paths: AppPaths, resources: URL?) throws -> AppServices {
+    public static func create(paths: AppPaths, resources: URL?, credentials: CredentialStore? = nil) throws -> AppServices {
         try paths.ensureCreated()
         guard let lock = InstanceLock(directory: paths.root) else {
             throw AppStartupError("\(AppIdentity.name) is already running with this data folder.", holderPid: InstanceLock.holderProcessId(directory: paths.root))
@@ -56,7 +57,7 @@ public final class AppServices {
             settings: AppSettings.load(from: paths.settingsFile),
             library: PageScriptLibrary(directory: resources),
             sox: SoxLog(url: paths.soxFile),
-            credentials: KeychainCredentialStore(service: Bundle.main.bundleIdentifier ?? AppIdentity.keychainService),
+            credentials: credentials ?? KeychainCredentialStore(service: Bundle.main.bundleIdentifier ?? AppIdentity.keychainService),
             instanceLock: lock
         )
     }
