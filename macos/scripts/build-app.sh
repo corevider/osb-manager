@@ -71,6 +71,9 @@ for product in $products; do
     grep -E "warning:|Build complete" "$scratch/swift-build.log" | cut -c1-300 | sort -u
 done
 bin="$(swift build -c "$configuration" --arch arm64 --scratch-path "$scratch" --show-bin-path)"
+for product in $products; do
+    sh "$base/macos/scripts/check-frame-symbols.sh" "$bin/$product"
+done
 
 helper_binary="$scratch/helper"
 mkdir -p "$scratch"
@@ -110,6 +113,7 @@ assemble() {
         cp "$shared/$script.js" "$contents/Resources/$script.js"
     done
     cp "$package/Resources/cef-shim.js" "$contents/Resources/"
+    cp "$package/Resources/diagnostics-vocabulary.json" "$contents/Resources/"
     cp "$icon/AppIcon.icns" "$contents/Resources/AppIcon.icns"
 
     ditto "$cef/Release/Chromium Embedded Framework.framework" "$contents/Frameworks/Chromium Embedded Framework.framework"

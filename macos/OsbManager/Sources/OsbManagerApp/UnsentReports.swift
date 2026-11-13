@@ -18,7 +18,7 @@ enum UnsentReports {
             let alert = NSAlert()
             alert.messageText = interface.unsentReports
             alert.informativeText = interface.noUnsentReports
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: interface.ok)
             alert.runModal()
             return
         }
@@ -35,7 +35,7 @@ enum UnsentReports {
                 if !outbox.sendAgain(id: entry.id) {
                     let full = NSAlert()
                     full.messageText = interface.queueFull
-                    full.addButton(withTitle: "OK")
+                    full.addButton(withTitle: interface.ok)
                     full.runModal()
                     return
                 }

@@ -12,6 +12,7 @@ public struct AppPaths: Equatable {
     public let privacyFile: URL
     public let outbox: URL
     public let updates: URL
+    public let diagnostics: URL
 
     public init(root: URL) {
         self.root = root.standardizedFileURL
@@ -25,6 +26,7 @@ public struct AppPaths: Equatable {
         privacyFile = self.root.appendingPathComponent("privacy.json")
         outbox = self.root.appendingPathComponent("outbox", isDirectory: true)
         updates = self.root.appendingPathComponent("updates", isDirectory: true)
+        diagnostics = self.root.appendingPathComponent("diagnostics", isDirectory: true)
     }
 
     public static func standard() -> AppPaths {

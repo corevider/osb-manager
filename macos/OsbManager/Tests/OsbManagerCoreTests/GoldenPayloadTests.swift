@@ -12,7 +12,7 @@ struct GoldenPayloadTests {
       "app_version": "2.0.4",
       "os": "windows",
       "locale": "en",
-      "consent": { "usage_version": 1, "characters": false }
+      "consent": { "usage_version": 2, "characters": false }
     }
     """
 
@@ -119,7 +119,7 @@ struct GoldenPayloadTests {
         #expect(body["app"] as? String == "manager-mac")
         #expect(body["os"] as? String == "macos")
         #expect((body["install_key"] as? String)?.count == 43)
-        #expect((body["consent"] as? [String: Any])?["usage_version"] as? Int == 1)
+        #expect((body["consent"] as? [String: Any])?["usage_version"] as? Int == 2)
         #expect((body["consent"] as? [String: Any])?["characters"] as? Bool == false)
         let id = try #require(body["install_id"] as? String)
         #expect(UUID(uuidString: id) != nil)

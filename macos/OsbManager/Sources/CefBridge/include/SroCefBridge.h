@@ -50,7 +50,9 @@ typedef NS_ENUM(NSInteger, SroCefEditCommand) {
 - (void)cefBrowser:(SroCefBrowser *)browser didReceivePageMessage:(NSString *)json fromMainFrame:(BOOL)mainFrame pageUrl:(NSString *)pageUrl;
 - (void)cefBrowser:(SroCefBrowser *)browser didFinishLoadingUrl:(NSString *)url;
 - (void)cefBrowser:(SroCefBrowser *)browser didFailLoadingUrl:(NSString *)url description:(NSString *)description;
-- (void)cefBrowser:(SroCefBrowser *)browser rendererDidTerminate:(NSString *)reason;
+- (void)cefBrowser:(SroCefBrowser *)browser rendererDidTerminateWithStatus:(int)status errorCode:(int)errorCode;
+- (void)cefBrowserRendererBecameUnresponsive:(SroCefBrowser *)browser;
+- (void)cefBrowserRendererBecameResponsive:(SroCefBrowser *)browser;
 - (void)cefBrowser:(SroCefBrowser *)browser wantsToOpenPopupToUrl:(NSString *)url;
 - (void)cefBrowser:(SroCefBrowser *)browser didLogConsoleMessage:(NSString *)message level:(int)level;
 - (void)cefBrowser:(SroCefBrowser *)browser didReportScriptError:(NSString *)description;
@@ -81,6 +83,7 @@ SRO_CEF_EXPORT
 - (void)sendMessageJson:(NSString *)json;
 - (void)evaluate:(NSString *)code completion:(void (^)(BOOL ok, NSString *text))completion;
 - (void)captureScreenshot:(void (^)(NSData *_Nullable png))completion;
+- (void)readHeapUsage:(void (^)(BOOL ok, double used, double total))completion;
 - (void)perform:(SroCefEditCommand)command;
 - (void)setAudioMuted:(BOOL)muted;
 - (BOOL)isAudioMuted;

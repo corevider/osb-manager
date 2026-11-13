@@ -7,7 +7,7 @@ enum AppMenu {
 
     static func build(main: MainWindowController, app: AppDelegate, services: AppServices) -> NSMenu {
         let bar = NSMenu()
-        bar.addItem(submenuItem(applicationMenu(app, language: TelemetryController.resolveLanguage(app.options))))
+        bar.addItem(submenuItem(applicationMenu(app)))
         bar.addItem(submenuItem(fileMenu(main)))
         bar.addItem(submenuItem(editMenu(app)))
         bar.addItem(submenuItem(accountsMenu(main)))
@@ -34,8 +34,8 @@ enum AppMenu {
         return item
     }
 
-    private static func applicationMenu(_ app: AppDelegate, language: ConsentLanguage) -> NSMenu {
-        let interface = InterfaceTexts.texts(for: language)
+    private static func applicationMenu(_ app: AppDelegate) -> NSMenu {
+        let interface = InterfaceTexts.english
         let menu = NSMenu(title: AppIdentity.name)
         menu.addItem(item("About \(AppIdentity.name)", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp))
         menu.addItem(.separator())

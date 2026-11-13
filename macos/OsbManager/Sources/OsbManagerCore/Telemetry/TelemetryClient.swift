@@ -141,6 +141,13 @@ public actor TelemetryClient {
         return await send(request, background: true)
     }
 
+    public func sendDiagnostics(_ credentials: InstallCredentials, body: Data) async -> ApiResponse {
+        guard var request = makeRequest("diagnostics", method: "POST", credentials: credentials) else { return .of(.networkError) }
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return await send(request, background: true)
+    }
+
     public func sendReport(credentials: InstallCredentials?, reportJson: Data, screenshot: Data?) async -> ApiResponse {
         guard var request = makeRequest("reports", method: "POST", credentials: credentials) else { return .of(.networkError) }
         let boundary = "osb-" + UUID().uuidString.replacingOccurrences(of: "-", with: "")

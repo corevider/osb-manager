@@ -15,6 +15,9 @@ public final class TelemetryService: @unchecked Sendable {
     public let settings: PrivacySettings
     public let outbox: ReportOutbox
     public let reports: ReportSender
+    public let diagnostics: DiagnosticsHub?
+    public let capture: DiagnosticsCapture?
+    public let uploader: DiagnosticsUploader?
 
     private let client: TelemetryClient
     private let statuses: StatusSource
@@ -36,9 +39,32 @@ public final class TelemetryService: @unchecked Sendable {
         clock: SchedulerClock = .continuous,
         now: @escaping @Sendable () -> Date = { Date() },
         random: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
-        log: @escaping @Sendable (String) -> Void = { _ in }
+        log: @escaping @Sendable (String) -> Void = { _ in },
+        diagnostics: DiagnosticsHub? = nil,
+        diagnosticsEnv: @escaping @Sendable () -> DiagnosticEnv = { DiagnosticEnv() },
+        crashSignals: Bool = false,
+        osbVocabulary: OsbVocabulary? = nil,
+        sampleWindows: (@Sendable ([PerfWindowInfo], Date) -> PerfSample)? = nil
     ) {
         self.settings = settings
+        self.diagnostics = diagnostics
+        if let diagnostics {
+            let perf = PerfCollector()
+            let capture = DiagnosticsCapture(
+                hub: diagnostics,
+                perf: perf,
+                appVersion: appVersion,
+                useSignals: crashSignals,
+                vocabulary: osbVocabulary,
+                sampleWindows: sampleWindows ?? { ProcessSampler.sample(windows: $0, at: $1) }
+            )
+            capture.configure { [settings, now] in Self.currentDiagnostics(settings.state, now: now()) }
+            self.capture = capture
+            uploader = DiagnosticsUploader(hub: diagnostics, perf: perf, appVersion: appVersion, env: diagnosticsEnv)
+        } else {
+            capture = nil
+            uploader = nil
+        }
         self.client = client
         self.statuses = statuses
         self.outbox = outbox
@@ -55,12 +81,17 @@ public final class TelemetryService: @unchecked Sendable {
             clock: clock,
             now: now,
             random: random,
-            log: log
+            log: log,
+            hub: diagnostics,
+            uploader: uploader
         )
         retry = ReportRetryScheduler(outbox: outbox, sender: reports, clock: clock, now: now, random: random, log: log)
         let scheduler = self.scheduler
         let retry = self.retry
         let signals = self.signals
+        if let diagnostics {
+            settings.addObserver { diagnostics.consentChanged() }
+        }
         settings.addObserver { signals.deliver { await scheduler.privacyChanged() } }
         outbox.addObserver { signals.deliver { await retry.outboxChanged() } }
     }
@@ -73,6 +104,35 @@ public final class TelemetryService: @unchecked Sendable {
         get async { await scheduler.disabledByFailSafe }
     }
 
+    public var diagnosticsHaveStopped: Bool {
+        get async { await scheduler.diagnosticsHaveStopped }
+    }
+
+    var diagnosticsRequests: Int {
+        get async { await scheduler.diagnosticsRequests }
+    }
+
+    #if DEBUG
+    func injectDiagnosticsFault(_ fault: (@Sendable () throws -> Void)?) async {
+        await scheduler.injectDiagnosticsFault(fault)
+    }
+    #endif
+
+    public static func currentDiagnostics(_ state: PrivacyState, now: Date) -> DiagnosticsConfig {
+        guard state.granted, let config = state.config, let fetched = state.configFetchedAt,
+              now.timeIntervalSince(fetched) < TelemetryLimits.configMaxAge else { return .disabled }
+        return config.diagnosticsSettings
+    }
+
+    public func currentDiagnostics() -> DiagnosticsConfig {
+        Self.currentDiagnostics(settings.state, now: now())
+    }
+
+    public func previewNextDiagnostics() -> String? {
+        guard settings.state.granted, let uploader else { return nil }
+        return uploader.preview(currentDiagnostics())
+    }
+
     var idleSleepers: Int? {
         get async {
             guard signals.isEmpty else { return nil }
@@ -82,9 +142,14 @@ public final class TelemetryService: @unchecked Sendable {
         }
     }
 
-    public func start() async {
+    public func start(sampling: Bool = true) async {
+        capture?.start(sampling: sampling)
         await scheduler.start()
         await retry.start()
+    }
+
+    public func finishRun() {
+        capture?.finish()
     }
 
     public func stop() async {
@@ -99,6 +164,10 @@ public final class TelemetryService: @unchecked Sendable {
     }
 
     public func decline() async {
+        if settings.state.status == .outdated {
+            _ = await withdraw(clearOutbox: false)
+            return
+        }
         settings.decline()
     }
 
@@ -109,8 +178,14 @@ public final class TelemetryService: @unchecked Sendable {
     }
 
     public func withdraw() async -> DeletionResult {
+        await withdraw(clearOutbox: true)
+    }
+
+    private func withdraw(clearOutbox: Bool) async -> DeletionResult {
         let result = settings.withdraw()
-        outbox.clearAll()
+        if clearOutbox {
+            outbox.clearAll()
+        }
         lock.withLock { failedDeletion = nil }
         guard result.wasRegistered, let credentials = result.credentials else { return .nothingToDelete }
         let response = await client.deleteInstall(credentials)

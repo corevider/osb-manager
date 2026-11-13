@@ -10,7 +10,7 @@
     <AssemblyTitle>OSB Manager</AssemblyTitle>
     <Product>OSB Manager</Product>
     <Company>Corevider</Company>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

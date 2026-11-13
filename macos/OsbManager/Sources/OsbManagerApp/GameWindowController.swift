@@ -33,6 +33,10 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     private var showMaximized = false
     private var closing = false
     private var closed = false
+    private var learnedCharacter: String?
+    private var pageDiagnosticsOn = false
+    private var pagePerfAsk = 0
+    private var botSeenSinceLoad = false
 
     public init(services: AppServices, account: Account, light: Bool, cascadeIndex: Int, recovery: RendererRecovery = RendererRecovery(), health: PageHealth = PageHealth()) {
         self.services = services
@@ -81,6 +85,41 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
         return pid > 0 ? pid : nil
     }
 
+    public var perfInfo: PerfWindowInfo {
+        PerfWindowInfo(
+            rendererPid: rendererProcessId.map { Int32(truncatingIfNeeded: $0) },
+            light: light,
+            hidden: isHidden || isMinimised || !window.occlusionState.contains(.visible),
+            inWorld: inGame
+        )
+    }
+
+    private var diagnostics: DiagnosticsCapture? { services.diagnostics }
+
+    private var ordinal: Int? { diagnostics?.ordinals.of(accountId) }
+
+    private func diagnosticContext() -> DiagnosticContext {
+        let current = status ?? lastStatus
+        return DiagnosticContext(
+            phase: DiagnosticScrubber.phase(current?.phase),
+            loginStage: DiagnosticScrubber.loginStage(current?.loginStage),
+            window: ordinal,
+            windows: diagnostics.map { min($0.windowCache.windows.count, DiagnosticFormats.maxEach) },
+            light: light,
+            hidden: isHidden || isMinimised
+        )
+    }
+
+    private func note(_ level: String, _ code: String) {
+        guard let diagnostics, diagnostics.hub.recording else { return }
+        diagnostics.trail(level, code, window: ordinal)
+    }
+
+    private func noteHang(_ outcome: String, waited: Int) {
+        guard let diagnostics, diagnostics.hub.recording else { return }
+        diagnostics.unresponsive(outcome: outcome, waitedSeconds: waited, context: diagnosticContext())
+    }
+
     public var stateText: String {
         let current = status
         let normal = GameWindowState.text(failure: failure, browserReady: browser?.currentUrl != nil || everReported, everReported: everReported, status: current)
@@ -127,6 +166,10 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
             return
         }
         services.log.info("\(accountName): browser started (profile \(dataFolder.lastPathComponent)).")
+        if let account = services.accounts.account(id: accountId) {
+            diagnostics?.learn(accounts: [account])
+        }
+        note("info", TrailCodes.windowStart)
     }
 
     public func show(activate: Bool) {
@@ -156,6 +199,9 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     }
 
     public func setLight(_ on: Bool) {
+        if on, !light {
+            note("info", TrailCodes.settingsLightOn)
+        }
         light = on
         applyLight()
     }
@@ -282,6 +328,10 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
             answerCredentialsRequest()
         case .rendererSlot(let slot):
             handleRendererSlot(slot)
+        case .osbBatch(let batch):
+            diagnostics?.pageBatches.offer(batch, window: ordinal)
+        case .osbPerf(let perf):
+            diagnostics?.pageBatches.offerPerf(perf, window: ordinal, osbVersion: lastStatus?.botVersion)
         }
     }
 
@@ -290,6 +340,9 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
         applyLight()
         applyFrameLimit()
         sendAutoLogin()
+        forgetPageDiagnostics()
+        botSeenSinceLoad = false
+        syncPageDiagnostics()
     }
 
     public func gameBrowser(_ browser: GameBrowser, didFailLoading description: String) {
@@ -297,10 +350,46 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
         services.log.error("\(accountName): could not load the game (\(description))")
     }
 
-    public func gameBrowser(_ browser: GameBrowser, rendererDidTerminate reason: String) {
+    public func gameBrowser(_ browser: GameBrowser, rendererDidTerminateWithStatus status: Int32, errorCode: Int32) {
+        if let diagnostics, diagnostics.hub.recording {
+            diagnostics.processFailed(status: status, errorCode: errorCode, context: diagnosticContext())
+        }
         services.renderers.forget(accountId)
+        forgetPageDiagnostics()
+        botSeenSinceLoad = false
         health.markCrashed()
-        services.log.error("\(accountName): the page process ended (\(reason)).")
+        services.log.error("\(accountName): the page process ended (status \(status), code \(errorCode)).")
+        note("error", TrailCodes.windowRendererExited)
+    }
+
+    public func gameBrowserRendererBecameUnresponsive(_ browser: GameBrowser) {
+        guard health.markUnresponsive() else { return }
+        services.log.warn("\(accountName): the page does not respond to input.")
+        note("warn", TrailCodes.windowUnresponsive)
+    }
+
+    public func gameBrowserRendererBecameResponsive(_ browser: GameBrowser) {
+        guard let waited = health.markResponsive() else { return }
+        services.log.info(PageTexts.responding(account: accountName))
+        note("info", TrailCodes.windowResponding)
+        noteHang("responded", waited: waited)
+    }
+
+    public func readHeapUsage(_ completion: @escaping @MainActor ((used: Double, total: Double)?) -> Void) {
+        guard let browser, !closed, !browser.isClosed else {
+            completion(nil)
+            return
+        }
+        var finished = false
+        let finish: @MainActor ((used: Double, total: Double)?) -> Void = { result in
+            guard !finished else { return }
+            finished = true
+            completion(result)
+        }
+        browser.readHeapUsage { finish($0) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + DiagnosticsCapture.pageReadTimeout) {
+            MainActor.assumeIsolated { finish(nil) }
+        }
     }
 
     public func gameBrowser(_ browser: GameBrowser, wantsToOpen url: URL) {
@@ -318,6 +407,10 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     private func finishClosing() {
         guard !closed else { return }
         closed = true
+        note("info", TrailCodes.windowClosed)
+        if let diagnostics, let ordinal {
+            diagnostics.pageBatches.rotation.gone(ordinal)
+        }
         services.renderers.forget(accountId)
         window.delegate = nil
         window.contentView = nil
@@ -358,20 +451,36 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
         let before = lastStatus
         if report.loginStage != before?.loginStage, report.loginStage == "failed" {
             services.log.warn("\(accountName): auto login stopped. \(report.loginMessage ?? "")")
+            note("warn", TrailCodes.loginFailed(before?.loginStage))
         }
         if report.linked, before?.linked != true {
             services.log.info("\(accountName): linked to the game.")
         }
         logRenderer(report, before: before)
         let step = recovery.observe(previous: before, report: report, restartAllowed: services.settings.restartAfterRendererFailure)
+        let waited = health.unresponsiveSeconds
         if health.reported(inWorld: report.inWorld) {
             services.log.info(PageTexts.responding(account: accountName))
+            note("info", TrailCodes.windowResponding)
+            noteHang("responded", waited: waited ?? 0)
         }
         if report.inWorld, before?.inWorld != true {
             services.log.info(LoginTexts.inWorld(account: accountName, character: report.character))
         }
+        if report.botVersion != nil, let diagnostics, let ordinal {
+            diagnostics.pageBatches.rotation.present(ordinal, at: diagnostics.hub.now())
+        }
+        if report.botVersion != nil, !botSeenSinceLoad {
+            botSeenSinceLoad = true
+            forgetPageDiagnostics()
+            syncPageDiagnostics()
+        }
         if let character = report.character {
             services.characters[accountId] = character
+            if character != learnedCharacter, let diagnostics, diagnostics.hub.recording {
+                learnedCharacter = character
+                diagnostics.learn(character)
+            }
         }
         for drop in report.drops {
             if let added = services.sox.add(drop, seenBy: accountName, ours: services.ourCharacters()), added.ours {
@@ -406,6 +515,7 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
             sendAutoLogin(checkKeychain: false)
         case .reload:
             services.log.warn(LoginTexts.reloading(account: accountName, reason: why))
+            note("warn", TrailCodes.loginReload)
             reloadPage()
         case .none:
             break
@@ -417,18 +527,27 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
 
     public func watchPage() {
         guard !closing, !closed else { return }
+        syncPageDiagnostics()
+        let waited = health.silentSeconds
         let step = health.tick()
         guard step != .none else { return }
         let line = PageTexts.step(account: accountName, step: step, problem: health.lastProblem)
+        let silent = health.lastProblem == .silent
         switch step {
         case .reload:
             services.log.warn(line)
+            note("warn", TrailCodes.windowReload)
+            if silent { noteHang("reloaded", waited: waited) }
             reloadPage()
         case .restart:
             services.log.warn(line)
+            note("warn", TrailCodes.windowRestart)
+            if silent { noteHang("restarted", waited: waited) }
             onRestartRequested?(self)
         case .giveUp:
             services.log.error(line)
+            note("error", TrailCodes.windowGaveUp)
+            if silent { noteHang("gave_up", waited: waited) }
         case .none:
             break
         }
@@ -437,9 +556,14 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
     private func logRenderer(_ report: BotStatus, before: BotStatus?) {
         if report.gpuRetries > 0, report.gpuRetries != (before?.gpuRetries ?? 0), report.gpuFailed == nil {
             services.log.warn(RendererTexts.retrying(account: accountName, retries: report.gpuRetries, limit: report.gpuRetryLimit, seconds: report.gpuRetryIn))
+            note("warn", TrailCodes.gpuRetry)
         }
         if let failed = report.gpuFailed, before?.gpuFailed == nil {
             services.log.error(RendererTexts.failed(account: accountName, reason: failed))
+            if let diagnostics, diagnostics.hub.recording {
+                diagnostics.trail("error", TrailCodes.gpuFailed(failed), window: ordinal)
+                diagnostics.gpuFailed(failed, retries: report.gpuRetries, context: diagnosticContext())
+            }
         }
     }
 
@@ -449,11 +573,14 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
         switch step {
         case .giveUp:
             services.log.error(line)
+            note("error", TrailCodes.windowGaveUp)
         case .reload:
             services.log.warn(line)
+            note("warn", TrailCodes.windowReload)
             reloadPage()
         case .restart:
             services.log.warn(line)
+            note("warn", TrailCodes.windowRestart)
             onRestartRequested?(self)
         case .none:
             break
@@ -486,6 +613,21 @@ public final class GameWindowController: NSObject, NSWindowDelegate, GameBrowser
 
     private func applyMute() {
         browser?.setMuted(light || muted)
+    }
+
+    private func syncPageDiagnostics() {
+        guard let diagnostics, browser != nil, isGamePage else { return }
+        let wanted = diagnostics.hub.recording && diagnostics.pageBatches.isAvailable
+        let ask = wanted ? diagnostics.pageBatches.rotation.wanted(ordinal, at: diagnostics.hub.now()) : 0
+        guard wanted != pageDiagnosticsOn || ask != pagePerfAsk else { return }
+        send(PageMessages.osbDiagnostics(on: wanted, perf: ask != 0))
+        pageDiagnosticsOn = wanted
+        pagePerfAsk = ask
+    }
+
+    private func forgetPageDiagnostics() {
+        pageDiagnosticsOn = false
+        pagePerfAsk = 0
     }
 
     private func send(_ message: [String: Any]) {

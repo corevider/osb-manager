@@ -174,11 +174,13 @@ public final class UpdateController: NSObject, NSMenuItemValidation {
         banner?.setBusy("Downloading OSB Manager \(offer.version)...")
         let folder = services.paths.updates.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let log = services.log
+        let services = self.services
         Task { @MainActor in
             var swapped = false
             defer { try? FileManager.default.removeItem(at: folder) }
             do {
                 log.info("Downloading the update to \(offer.version).")
+                services.note("info", TrailCodes.updateDownload)
                 let zip = try await checker.download(offer, into: folder)
                 log.info("The download matches the signed manifest of \(offer.version).")
                 banner?.setBusy("Checking the signature of OSB Manager \(offer.version)...")
@@ -212,6 +214,7 @@ public final class UpdateController: NSObject, NSMenuItemValidation {
                 }
                 swap.cleanUp()
                 log.error("The update failed", error)
+                services.note("error", TrailCodes.updateFailed)
                 notice.installFailed()
                 showBanner(offer)
                 offerReleasePage(offer, "The update to \(offer.version) failed: \(error.localizedDescription)")

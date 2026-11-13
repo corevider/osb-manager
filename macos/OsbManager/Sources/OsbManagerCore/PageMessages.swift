@@ -4,6 +4,8 @@ public enum PageMessage: Equatable {
     case status(BotStatus)
     case credentialsRequest
     case rendererSlot(RendererSlotMessage)
+    case osbBatch(String)
+    case osbPerf(String)
 }
 
 /// A page asking for the renderer slot ("gpu-slot") or handing it back ("gpu-slot-done"). Only short alphanumeric
@@ -36,6 +38,12 @@ public enum PageMessageInbox {
     public static func accept(body: Any, isMainFrame: Bool, scheme: String, host: String, port: Int) -> PageMessage? {
         guard isMainFrame, scheme == "https", host == gameHost, port == 0 || port == 443,
               let json = body as? String else { return nil }
+        if OsbPageBatch.isBatch(json) {
+            return .osbBatch(json)
+        }
+        if OsbPageBatch.isPerf(json) {
+            return .osbPerf(json)
+        }
         if let status = BotStatus.parse(json) {
             return .status(status)
         }
@@ -70,6 +78,10 @@ public enum PageMessages {
 
     public static func credentialsDenied(reason: String) -> [String: Any] {
         ["type": "credentials", "reason": reason]
+    }
+
+    public static func osbDiagnostics(on: Bool, perf: Bool) -> [String: Any] {
+        OsbPageBatch.switchMessage(on: on, perf: perf)
     }
 
     public static func rendererSlotGrant(id: String) -> [String: Any] {

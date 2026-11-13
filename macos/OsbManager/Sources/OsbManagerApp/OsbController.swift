@@ -69,6 +69,7 @@ public final class OsbController {
         case .failed:
             let reason = result.error?.localizedDescription ?? "unknown error"
             services.log.warn("Could not install OSB on the first start (\(reason)). It will try again at the next start.")
+            services.note("warn", TrailCodes.scriptInstallFailed)
             setInstallLine(Self.failedLine)
         case .skipped, .notDue:
             setInstallLine(nil)
@@ -94,6 +95,7 @@ public final class OsbController {
         case .failed where result.firstFailureInStreak:
             let reason = result.error?.localizedDescription ?? "unknown error"
             services.log.warn("Could not check for an OSB update (\(reason)). It will try again later.")
+            services.note("warn", TrailCodes.scriptUpdateFailed)
         default:
             break
         }

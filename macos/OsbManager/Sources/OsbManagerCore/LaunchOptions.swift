@@ -12,8 +12,12 @@ public struct LaunchOptions: Equatable {
     public var latencyLog: URL?
     public var dialogShots: URL?
     public var interfaceLanguage: String?
+    public var testInstallKeyFile: URL?
     public var updatedFrom: Int32?
     public var osbUrl: String?
+    public var testUncaughtException = false
+    public var inMemoryCredentials = false
+    public var testStopSharingAfter: TimeInterval?
 
     public init() {}
 
@@ -66,6 +70,15 @@ public struct LaunchOptions: Equatable {
                 options.dialogShots = URL(fileURLWithPath: (try value(for: argument) as NSString).expandingTildeInPath, isDirectory: true)
             case "--language":
                 options.interfaceLanguage = try value(for: argument)
+            case "--test-uncaught-exception":
+                options.testUncaughtException = true
+            case "--in-memory-credentials":
+                options.inMemoryCredentials = true
+            case "--test-stop-sharing":
+                guard let seconds = TimeInterval(try value(for: argument)), seconds >= 0, seconds <= 86_400 else { throw LaunchOptionsError("--test-stop-sharing needs seconds from 0 to 86400.") }
+                options.testStopSharingAfter = seconds
+            case "--test-install-key-file":
+                options.testInstallKeyFile = URL(fileURLWithPath: (try value(for: argument) as NSString).expandingTildeInPath)
             #endif
             default:
                 throw LaunchOptionsError("Unknown option \(argument).")

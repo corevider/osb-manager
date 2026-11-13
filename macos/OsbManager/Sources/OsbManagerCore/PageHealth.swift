@@ -40,6 +40,27 @@ public final class PageHealth {
 
     public var unresponsive: Bool { unresponsiveSince != nil }
 
+    public var unresponsiveSeconds: Int? {
+        unresponsiveSince.map { Self.seconds(clock().timeIntervalSince($0)) }
+    }
+
+    public var silentSeconds: Int {
+        Self.seconds(clock().timeIntervalSince(unresponsiveSince ?? lastSign))
+    }
+
+    @discardableResult
+    public func markResponsive() -> Int? {
+        guard let since = unresponsiveSince else { return nil }
+        let now = clock()
+        unresponsiveSince = nil
+        lastSign = now
+        return Self.seconds(now.timeIntervalSince(since))
+    }
+
+    private static func seconds(_ interval: TimeInterval) -> Int {
+        Int(min(max(interval, 0), 86_400).rounded())
+    }
+
     public func pageStarted() {
         let now = clock()
         lastSign = now

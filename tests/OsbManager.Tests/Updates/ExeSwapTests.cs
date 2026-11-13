@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using OsbManager.Core.Updates;
 
 namespace OsbManager.Tests.Updates;
@@ -161,7 +163,41 @@ public class ExeSwapTests
 
         Assert.True(ExeSwap.CanWrite(temp.Path));
         Assert.False(ExeSwap.CanWrite(Path.Combine(temp.Path, "missing")));
-        Assert.False(ExeSwap.CanWrite(Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
         Assert.Empty(Directory.GetFiles(temp.Path));
+    }
+
+    [Fact]
+    public void TellsAFolderThatDeniesNewFilesToTheCurrentUserFromOneThatAllowsThem()
+    {
+        using var temp = new TempDirectory();
+        var folder = Directory.CreateDirectory(temp.File("locked"));
+        var user = WindowsIdentity.GetCurrent().User!;
+        var deny = new FileSystemAccessRule(user, FileSystemRights.CreateFiles, AccessControlType.Deny);
+        var security = folder.GetAccessControl();
+        security.AddAccessRule(deny);
+        folder.SetAccessControl(security);
+        try
+        {
+            Assert.False(ExeSwap.CanWrite(folder.FullName));
+        }
+        finally
+        {
+            security.RemoveAccessRule(deny);
+            folder.SetAccessControl(security);
+        }
+
+        Assert.True(ExeSwap.CanWrite(folder.FullName));
+        Assert.Empty(folder.GetFiles());
+    }
+
+    [Fact]
+    public void TellsAPathThatIsAFileFromAWritableFolder()
+    {
+        using var temp = new TempDirectory();
+        var file = temp.File("not-a-folder");
+        File.WriteAllText(file, "x");
+
+        Assert.False(ExeSwap.CanWrite(file));
+        Assert.Equal("x", File.ReadAllText(file));
     }
 }

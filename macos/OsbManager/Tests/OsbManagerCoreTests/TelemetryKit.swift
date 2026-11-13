@@ -165,6 +165,7 @@ final class FakeServer: @unchecked Sendable {
     private var routes: [String: (SeenRequest) -> Reply] = [:]
     private var sequences: [String: [Reply]] = [:]
     private var flying = 0
+    private var peak = 0
     private var stalls = 0
     private var served = 0
     private let clock: ManualClock
@@ -185,6 +186,8 @@ final class FakeServer: @unchecked Sendable {
 
     var inFlight: Int { lock.withLock { flying } }
 
+    var peakInFlight: Int { lock.withLock { peak } }
+
     var stalled: Int { lock.withLock { stalls } }
 
     var activity: Int { lock.withLock { seen.count * 1000 + flying + served } }
@@ -202,13 +205,13 @@ final class FakeServer: @unchecked Sendable {
     }
 
     func failEverything(_ status: Int) {
-        for endpoint in ["GET /v1/config", "POST /v1/installs", "POST /v1/telemetry", "PUT /v1/installs/me/consent", "POST /v1/reports", "DELETE /v1/installs/me"] {
+        for endpoint in ["GET /v1/config", "POST /v1/installs", "POST /v1/telemetry", "PUT /v1/installs/me/consent", "POST /v1/reports", "DELETE /v1/installs/me", "POST /v1/diagnostics"] {
             route(endpoint) { _ in Reply.problem(status, "server_error") }
         }
     }
 
     func hangEverything() {
-        for endpoint in ["GET /v1/config", "POST /v1/installs", "POST /v1/telemetry", "PUT /v1/installs/me/consent", "POST /v1/reports", "DELETE /v1/installs/me"] {
+        for endpoint in ["GET /v1/config", "POST /v1/installs", "POST /v1/telemetry", "PUT /v1/installs/me/consent", "POST /v1/reports", "DELETE /v1/installs/me", "POST /v1/diagnostics"] {
             route(endpoint) { _ in Reply.hang }
         }
     }
@@ -234,6 +237,7 @@ final class FakeServer: @unchecked Sendable {
         return lock.withLock {
             seen.append(seenRequest)
             flying += 1
+            peak = max(peak, flying)
             if var sequence = sequences[seenRequest.endpoint], !sequence.isEmpty {
                 let reply = sequence.removeFirst()
                 sequences[seenRequest.endpoint] = sequence
@@ -265,6 +269,8 @@ final class FakeServer: @unchecked Sendable {
             return .json(202, #"{"accepted":1,"next_after_s":600}"#)
         case "POST /v1/reports":
             return .json(201, #"{"code":"R-7K3Q9XAB","screenshot":"none"}"#)
+        case "POST /v1/diagnostics":
+            return .json(202, #"{"accepted_events":1,"accepted_perf":0,"next_after_s":600}"#)
         case "PUT /v1/installs/me/consent", "DELETE /v1/installs/me":
             return .respond(status: 204, headers: [:], body: "")
         case "GET /v1/installs/me/export":
@@ -426,19 +432,21 @@ final class TelemetryKit: @unchecked Sendable {
 
     let clock = ManualClock()
     let server: FakeServer
-    let directory = TemporaryDirectory()
+    let directory: TemporaryDirectory
     let keys = InMemoryInstallKeyStore()
     let logs = LogBox()
     let settings: PrivacySettings
     let outbox: ReportOutbox
     let statuses: FakeStatuses
     let service: TelemetryService
+    let diagnostics: DiagnosticsHub
     let client: TelemetryClient
     private let now: @Sendable () -> Date
 
     var privacyFile: URL { directory.file("privacy.json") }
 
-    init(random: Double = 0.5, source: StatusSource? = nil, privacyFile contents: String? = nil, keyStore: InstallKeyStore? = nil, consent characters: Bool? = nil) throws {
+    init(random: Double = 0.5, source: StatusSource? = nil, privacyFile contents: String? = nil, keyStore: InstallKeyStore? = nil, consent characters: Bool? = nil, sampleDraw: Int = 0, sampleWindows: (@Sendable ([PerfWindowInfo], Date) -> PerfSample)? = nil, directory: TemporaryDirectory = TemporaryDirectory()) throws {
+        self.directory = directory
         let clock = self.clock
         let moment: @Sendable () -> Date = { Date(timeIntervalSince1970: Self.origin + clock.elapsed.seconds) }
         now = moment
@@ -449,9 +457,11 @@ final class TelemetryKit: @unchecked Sendable {
             try contents.write(to: directory.file("privacy.json"), atomically: true, encoding: .utf8)
         }
         let store = keyStore ?? keys
-        settings = PrivacySettings.load(from: directory.file("privacy.json"), keyStore: store, now: moment, log: { logs.add($0) })
+        let loaded = PrivacySettings.load(from: directory.file("privacy.json"), keyStore: store, now: moment, log: { logs.add($0) })
+        settings = loaded
         if let characters { settings.grant(characters: characters) }
         outbox = ReportOutbox(directory: directory.file("outbox"), now: moment)
+        diagnostics = DiagnosticsHub(folder: directory.file("diagnostics"), terms: PrivateTerms.forMachine(.canary, dataFolder: directory.url.path), now: moment, sampleDraw: sampleDraw, consentOn: { loaded.state.granted })
         let configuration = TelemetryClient.makeConfiguration()
         configuration.protocolClasses = [FakeServerProtocol.self]
         client = try TelemetryClient(baseUrl: server.baseUrl, userAgent: "OSBManager/1.2.0 (macOS)", configuration: configuration, clock: SchedulerClock(clock.tagged(Self.clientTag)))
@@ -465,7 +475,10 @@ final class TelemetryKit: @unchecked Sendable {
             clock: SchedulerClock(clock.tagged(Self.serviceTag)),
             now: moment,
             random: { random },
-            log: { logs.add($0) }
+            log: { logs.add($0) },
+            diagnostics: diagnostics,
+            diagnosticsEnv: { DiagnosticEnv(osBuild: "26.5.0", webview2: "156.0.8078.80", ramGb: 16, cores: 8, gpuVendor: "apple") },
+            sampleWindows: sampleWindows
         )
     }
 
@@ -545,11 +558,15 @@ final class TelemetryKit: @unchecked Sendable {
     }
 
     func run(for duration: Duration, startService: Bool = true) async {
-        if startService { await service.start() }
+        if startService { await service.start(sampling: false) }
         await advance(duration)
     }
 
     func stop() async {
         await service.stop()
+    }
+
+    func allowDiagnostics(_ config: DiagnosticsConfig = DiagnosticsConfig(enabled: true, perf: true)) {
+        diagnostics.applyServer(config)
     }
 }

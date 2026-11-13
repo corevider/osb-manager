@@ -109,6 +109,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     private func leaveMessageLoop() {
         guard !leftMessageLoop else { return }
         leftMessageLoop = true
+        telemetry?.finishRun()
         telemetry?.stop()
         updates?.stop()
         osb?.stop()

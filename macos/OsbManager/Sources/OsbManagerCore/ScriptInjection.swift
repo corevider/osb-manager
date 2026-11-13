@@ -21,7 +21,14 @@ public enum ScriptInjection {
             include: try meta.matches.map(UrlPattern.fromMatch) + meta.includes.map(UrlPattern.fromGlob),
             exclude: meta.excludes.map(UrlPattern.fromGlob)
         ))
-        return "(() => {\nconst meta = \(settings);\n\(prelude)const run = () => {\n\(source)\n};\n\(launcher)})();\n"
+        return "(() => {\n//# sourceURL=osb-manager-script/\(sourceName(meta.name)).user.js\nconst meta = \(settings);\n\(prelude)const run = () => {\n\(source)\n};\n\(launcher)})();\n"
+    }
+
+    static func sourceName(_ name: String) -> String {
+        let allowed = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-".utf16)
+        let units = name.trimmingCharacters(in: .whitespacesAndNewlines).utf16.map { allowed.contains($0) ? $0 : UInt16(UInt8(ascii: "-")) }
+        let safe = String(decoding: units.prefix(64), as: UTF16.self)
+        return safe.isEmpty ? "script" : safe
     }
 
     private static let prelude = #"""

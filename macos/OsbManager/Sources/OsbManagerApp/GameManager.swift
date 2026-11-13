@@ -62,8 +62,12 @@ public final class GameManager {
     }
 
     public func watchPages() {
+        services.diagnostics?.tickOsbPerf()
         for window in Array(windows.values) {
             window.watchPage()
+        }
+        if let diagnostics = services.diagnostics, diagnostics.hub.recording {
+            diagnostics.windowCache.windows = windows.values.filter { !$0.isClosed }.map(\.perfInfo)
         }
     }
 

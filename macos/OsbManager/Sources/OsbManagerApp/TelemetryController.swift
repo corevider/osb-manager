@@ -1,4 +1,5 @@
 import AppKit
+import OsbManagerCef
 import OsbManagerCore
 
 final class ManagerStatusSource: StatusSource, @unchecked Sendable {
@@ -57,9 +58,9 @@ struct ScaledClock: Clock {
 public final class TelemetryController {
     public let service: TelemetryService
     public let settings: PrivacySettings
-    public let language: ConsentLanguage
-    public let texts: ConsentTexts
-    public let interface: InterfaceTexts
+    public let locale: String
+    public let texts = ConsentTexts.english
+    public let interface = InterfaceTexts.english
     let services: AppServices
     let manager: GameManager
     private weak var main: MainWindowController?
@@ -67,25 +68,23 @@ public final class TelemetryController {
     private var reportWindow: ReportWindowController?
     private var banner: ConsentBanner?
 
-    private init(service: TelemetryService, settings: PrivacySettings, language: ConsentLanguage, services: AppServices, manager: GameManager) {
+    private init(service: TelemetryService, settings: PrivacySettings, locale: String, services: AppServices, manager: GameManager) {
         self.service = service
         self.settings = settings
-        self.language = language
+        self.locale = locale
         self.services = services
         self.manager = manager
-        texts = ConsentTexts.texts(for: language)
-        interface = InterfaceTexts.texts(for: language)
     }
 
-    public static func resolveLanguage(_ options: LaunchOptions) -> ConsentLanguage {
+    public static func resolveLocale(_ options: LaunchOptions) -> String {
         if let forced = options.interfaceLanguage {
-            return ConsentLanguage.preferred([forced])
+            return InterfaceLocale.code([forced])
         }
-        return ConsentLanguage.preferred()
+        return InterfaceLocale.code()
     }
 
     public static func create(services: AppServices, manager: GameManager, options: LaunchOptions) async -> TelemetryController? {
-        let language = resolveLanguage(options)
+        let locale = resolveLocale(options)
         let log = services.log
         var keyStore: InstallKeyStore = KeychainInstallKeyStore()
         var baseUrl = URL(string: TelemetryLimits.releaseBaseUrl)
@@ -102,6 +101,10 @@ public final class TelemetryController {
         if options.telemetryConsent {
             keyStore = InMemoryInstallKeyStore()
             grantAtStart = true
+        }
+        if let keyFile = options.testInstallKeyFile {
+            let key = (try? String(contentsOf: keyFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+            keyStore = InMemoryInstallKeyStore(key: key)
         }
         if let scale = options.telemetryTimeScale {
             schedulerClock = SchedulerClock(ScaledClock(scale: scale))
@@ -131,17 +134,113 @@ public final class TelemetryController {
                 return AccountSnapshot(accountId: window.accountId, server: server, status: report.status, receivedAt: report.receivedAt)
             }
         }
+        let cefVersion = CefRuntime.version
         let service = TelemetryService(
             settings: settings,
             client: client,
             statuses: source,
             outbox: ReportOutbox(directory: services.paths.outbox),
             appVersion: AppVersion.short(),
-            locale: language.code,
+            locale: locale,
             clock: schedulerClock,
-            log: { log.info($0) }
+            log: { log.info($0) },
+            diagnostics: makeDiagnostics(services: services, settings: settings),
+            diagnosticsEnv: { DiagnosticEnvironment.forThisMac(cefVersion: cefVersion) },
+            crashSignals: true,
+            osbVocabulary: loadVocabulary(services: services)
         )
-        return TelemetryController(service: service, settings: settings, language: language, services: services, manager: manager)
+        let controller = TelemetryController(service: service, settings: settings, locale: locale, services: services, manager: manager)
+        controller.attachDiagnostics()
+        #if DEBUG
+        if options.testUncaughtException {
+            controller.raiseUncaughtExceptionWhenRecording()
+        }
+        if let seconds = options.testStopSharingAfter {
+            controller.stopSharing(after: seconds)
+        }
+        #endif
+        return controller
+    }
+
+    private func attachDiagnostics() {
+        guard let capture = service.capture else { return }
+        services.diagnostics = capture
+        CrashHandlers.install(capture)
+        services.log.onError = { [weak capture] error in
+            guard let capture, capture.hub.recording else { return }
+            capture.caught(error, context: DiagnosticContext(windows: min(capture.windowCache.windows.count, DiagnosticFormats.maxEach)))
+        }
+        capture.requestPageMemory = { [weak self] in
+            Task { @MainActor in self?.readPageMemory() }
+        }
+    }
+
+    private func readPageMemory() {
+        guard let capture = service.capture, capture.hub.recording else { return }
+        let windows = manager.windows.values.filter { !$0.isClosed }
+        guard !windows.isEmpty else { return }
+        let megabyte = 1024.0 * 1024.0
+        var used: [Double] = []
+        var total: [Double] = []
+        var left = windows.count
+        for window in windows {
+            window.readHeapUsage { result in
+                if let result {
+                    used.append(result.used / megabyte)
+                    total.append(result.total / megabyte)
+                }
+                left -= 1
+                if left == 0, !used.isEmpty {
+                    capture.perf.setPageMemory(used: used, total: total)
+                }
+            }
+        }
+    }
+
+    public func finishRun() {
+        service.finishRun()
+    }
+
+    #if DEBUG
+    private func stopSharing(after seconds: TimeInterval) {
+        let service = self.service
+        let log = services.log
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            log.warn("Debug option: switching sharing off.")
+            let result = await service.withdraw()
+            log.info("Debug option: sharing is off (\(result)).")
+        }
+    }
+
+    private func raiseUncaughtExceptionWhenRecording() {
+        guard let capture = service.capture else { return }
+        let log = services.log
+        Task.detached(priority: .utility) {
+            while !(capture.hub.recording && capture.marker.isWritten) {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            log.warn("Debug option: raising an uncaught exception.")
+            Thread.detachNewThread {
+                NSException(name: .invalidArgumentException, reason: "debug uncaught exception CanaryReasonQz", userInfo: ["account": "CanaryAccountXv"]).raise()
+            }
+        }
+    }
+    #endif
+
+    private static func loadVocabulary(services: AppServices) -> OsbVocabulary? {
+        do {
+            return try OsbVocabulary.load(from: services.library.directory.appendingPathComponent(OsbVocabulary.fileName))
+        } catch {
+            services.log.warn("OSB error reports from the game pages are off: the OSB vocabulary could not be read.")
+            return nil
+        }
+    }
+
+    private static func makeDiagnostics(services: AppServices, settings: PrivacySettings) -> DiagnosticsHub {
+        let terms = PrivateTerms.forThisMac(dataFolder: services.paths.root)
+        terms.add(accounts: services.accounts.accounts)
+        return DiagnosticsHub(folder: services.paths.diagnostics, terms: terms, consentOn: { settings.state.granted })
     }
 
     public func attach(main: MainWindowController) {
@@ -164,9 +263,11 @@ public final class TelemetryController {
     }
 
     public func presentConsentPromptIfNeeded() {
-        guard settings.state.needsAnswer, let main, banner == nil else { return }
+        let state = settings.state
+        guard state.needsAnswer, let main, banner == nil else { return }
         let view = ConsentBanner(
             texts: texts,
+            sharedBefore: state.sharedBefore,
             onShare: { [weak self] in self?.answerShare() },
             onDecline: { [weak self] in self?.answerDecline() },
             onWhatIsSent: { [weak self] in self?.showPrivacy(revealPayload: true) }
@@ -196,6 +297,17 @@ public final class TelemetryController {
     #if DEBUG
     var privacyWindowForShots: NSWindow? { privacyWindow?.window }
     var reportWindowForShots: ReportWindowController? { reportWindow }
+
+    func showConsentPromptForShots(sharedBefore: Bool) {
+        guard let main else { return }
+        let view = ConsentBanner(texts: texts, sharedBefore: sharedBefore, onShare: {}, onDecline: {}, onWhatIsSent: {})
+        banner = view
+        main.setConsentBanner(view)
+    }
+
+    func hideConsentPromptForShots() {
+        removeBanner()
+    }
     #endif
 
     public func closeAuxiliaryWindows() {

@@ -159,7 +159,7 @@ Test scenarios of `OsbManagerE2E` (`--scenario`): `full` (default: two accounts,
 
 ## Usage statistics and reports
 
-Opt-in only, off by default, with a first-run panel in the main window, **Privacy…** and **Report a problem…** in the app menu, and English or Turkish texts. What is sent, when, and how it stays off the game's path: [telemetry.md](telemetry.md).
+Opt-in only, off by default, with a first-run panel in the main window, **Privacy…** and **Report a problem…** in the app menu, and English texts only (the KVKK links are labelled "(Turkish)"). What is sent, when, and how it stays off the game's path: [telemetry.md](telemetry.md).
 
 ## The data folder
 
@@ -187,7 +187,7 @@ Window positions use the macOS screen coordinates (origin at the bottom left). R
 - **Start queue.** Several starts open one window every 15 seconds, in list order. A waiting account shows "Starts in N s".
 - **Game menu** (acts on the focused game window or the selected account): **Reload** (⌘R), **Light mode** (⌘L), **Mute** (⇧⌘M), **Hide window / Show window** (⇧⌘H). The **Window** menu lists every open game window, hidden ones too. The **Edit** menu works in the game page and in the main window's fields.
 - **Light mode.** The shared bridge decides when it starts (world loaded and hunting, or 15 seconds after load). Light mode also mutes the window.
-- **Userscripts.** Add from a URL (https only) or a file. They run at document start in the main frame, after the bridge, through the same Tampermonkey-style wrapper as the Windows app (`@match`, `@include`, `@exclude`, `@run-at`, `@noframes`, `GM_info`, `GM_addStyle`, `GM_getValue`, `GM_setValue`, `GM_deleteValue`, `GM_listValues` and the `GM.*` forms). `GM_addStyle` waits for the page's root element when the script runs before it exists. A change applies when a game window reloads (**Scripts → Reload open game windows**).
+- **Userscripts.** Add from a URL (https only) or a file. They run at document start in the main frame, after the bridge, through the same Tampermonkey-style wrapper as the Windows app, which starts with `//# sourceURL=osb-manager-script/<name>.user.js` (`@match`, `@include`, `@exclude`, `@run-at`, `@noframes`, `GM_info`, `GM_addStyle`, `GM_getValue`, `GM_setValue`, `GM_deleteValue`, `GM_listValues` and the `GM.*` forms). `GM_addStyle` waits for the page's root element when the script runs before it exists. A change applies when a game window reloads (**Scripts → Reload open game windows**).
 - **Window handling.** Position, size and maximised state are saved per account and restored. Closing a window with a character in the game asks first. Zoom and minimise work; the page follows the window size.
 
 ## Launch options

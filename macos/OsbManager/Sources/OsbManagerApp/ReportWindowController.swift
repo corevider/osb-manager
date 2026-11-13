@@ -118,7 +118,7 @@ final class ReportWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
             description: descriptionView.string,
             diagnostics: diagnostics,
             appVersion: AppVersion.short(),
-            locale: controller.language.code
+            locale: controller.locale
         )
     }
 

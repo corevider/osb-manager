@@ -18,6 +18,7 @@ public final class AppServices {
     public var browserFactory: GameBrowserFactory = CefGameBrowserFactory()
     public var preBridgeScripts: [String] = []
     public var allowEvaluate = false
+    public var diagnostics: DiagnosticsCapture?
     public private(set) var rangeFetcher: RangeFetcher = URLSessionRangeFetcher()
     private var cache: SharedAssetCache?
     public let downloader: ScriptDownloading = HttpScriptDownloader()
@@ -89,6 +90,10 @@ public final class AppServices {
     public func shutdownCache() {
         CefPackInterception.shared.use(nil)
         cache?.dispose()
+    }
+
+    public func note(_ level: String, _ code: String) {
+        diagnostics?.trail(level, code)
     }
 
     public func ourCharacters() -> [String] {

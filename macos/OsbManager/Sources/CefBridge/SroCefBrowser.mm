@@ -103,7 +103,7 @@ CefString ToCefString(NSString* value) {
 @class SroCefBrowser;
 
 @interface SroCefBrowser ()
-- (void)handleDevToolsResult:(int)messageId success:(BOOL)success base64:(NSString*)base64;
+- (void)handleDevToolsResult:(int)messageId success:(BOOL)success base64:(NSString*)base64 used:(double)used total:(double)total;
 @end
 
 namespace {
@@ -118,14 +118,35 @@ class SroDevToolsObserver : public CefDevToolsMessageObserver {
                               const void* result,
                               size_t result_size) override {
     NSString* base64 = @"";
+    double used = -1;
+    double total = -1;
     if (success && result && result_size > 0) {
       CefRefPtr<CefValue> parsed = CefParseJSON(result, result_size, JSON_PARSER_RFC);
       if (parsed && parsed->GetType() == VTYPE_DICTIONARY) {
-        base64 = ToNSString(parsed->GetDictionary()->GetString("data"));
+        CefRefPtr<CefDictionaryValue> dictionary = parsed->GetDictionary();
+        if (dictionary->GetType("data") == VTYPE_STRING) {
+          base64 = ToNSString(dictionary->GetString("data"));
+        }
+        used = NumberAt(dictionary, "usedSize");
+        total = NumberAt(dictionary, "totalSize");
       }
     }
-    [owner_ handleDevToolsResult:message_id success:success base64:base64];
+    [owner_ handleDevToolsResult:message_id success:success base64:base64 used:used total:total];
   }
+
+ private:
+  static double NumberAt(CefRefPtr<CefDictionaryValue> dictionary, const char* key) {
+    switch (dictionary->GetType(key)) {
+      case VTYPE_INT:
+        return static_cast<double>(dictionary->GetInt(key));
+      case VTYPE_DOUBLE:
+        return dictionary->GetDouble(key);
+      default:
+        return -1;
+    }
+  }
+
+ public:
 
  private:
   __weak SroCefBrowser* owner_;
@@ -195,6 +216,9 @@ class SroClient : public CefClient,
                                  TerminationStatus status,
                                  int error_code,
                                  const CefString& error_string) override;
+  bool OnRenderProcessUnresponsive(CefRefPtr<CefBrowser> browser,
+                                   CefRefPtr<CefUnresponsiveProcessCallback> callback) override;
+  void OnRenderProcessResponsive(CefRefPtr<CefBrowser> browser) override;
 
  private:
   __weak SroCefBrowser* owner_;
@@ -215,7 +239,8 @@ class SroClient : public CefClient,
 - (void)handleLoadError:(NSString*)url description:(NSString*)description;
 - (void)handlePopup:(NSString*)url;
 - (void)handleConsole:(NSString*)message level:(int)level;
-- (void)handleTerminated:(NSString*)reason;
+- (void)handleTerminatedStatus:(int)status code:(int)code;
+- (void)handleUnresponsive:(BOOL)unresponsive;
 - (void)handleClosed;
 
 @end
@@ -315,8 +340,17 @@ void SroClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
                                           TerminationStatus status,
                                           int error_code,
                                           const CefString& error_string) {
-  [owner_ handleTerminated:[NSString stringWithFormat:@"status %d, code %d, %@", static_cast<int>(status),
-                                                      error_code, ToNSString(error_string)]];
+  [owner_ handleTerminatedStatus:static_cast<int>(status) code:error_code];
+}
+
+bool SroClient::OnRenderProcessUnresponsive(CefRefPtr<CefBrowser> browser,
+                                            CefRefPtr<CefUnresponsiveProcessCallback> callback) {
+  [owner_ handleUnresponsive:YES];
+  return false;
+}
+
+void SroClient::OnRenderProcessResponsive(CefRefPtr<CefBrowser> browser) {
+  [owner_ handleUnresponsive:NO];
 }
 
 @implementation SroCefBrowser {
@@ -324,6 +358,7 @@ void SroClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
   CefRefPtr<SroClient> _client;
   CefRefPtr<CefRegistration> _devToolsRegistration;
   NSMutableDictionary<NSNumber*, void (^)(NSData*)>* _screenshots;
+  NSMutableDictionary<NSNumber*, void (^)(BOOL, double, double)>* _heapReads;
   NSMutableDictionary<NSNumber*, void (^)(BOOL, NSString*)>* _pending;
   int _nextRequest;
   BOOL _allowEvaluate;
@@ -348,6 +383,7 @@ void SroClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
   _allowEvaluate = allowEvaluate;
   _pending = [NSMutableDictionary dictionary];
   _screenshots = [NSMutableDictionary dictionary];
+  _heapReads = [NSMutableDictionary dictionary];
   _client = new SroClient(self);
 
   CefRequestContextSettings context_settings;
@@ -480,7 +516,30 @@ void SroClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
   _screenshots[@(identifier)] = [completion copy];
 }
 
-- (void)handleDevToolsResult:(int)messageId success:(BOOL)success base64:(NSString*)base64 {
+- (void)readHeapUsage:(void (^)(BOOL, double, double))completion {
+  if (!_browser || _closed) {
+    completion(NO, 0, 0);
+    return;
+  }
+  if (!_devToolsRegistration) {
+    _devToolsRegistration = _browser->GetHost()->AddDevToolsMessageObserver(new SroDevToolsObserver(self));
+  }
+  int identifier = _browser->GetHost()->ExecuteDevToolsMethod(0, "Runtime.getHeapUsage", nullptr);
+  if (identifier == 0) {
+    completion(NO, 0, 0);
+    return;
+  }
+  _heapReads[@(identifier)] = [completion copy];
+}
+
+- (void)handleDevToolsResult:(int)messageId success:(BOOL)success base64:(NSString*)base64 used:(double)used total:(double)total {
+  void (^heap)(BOOL, double, double) = _heapReads[@(messageId)];
+  if (heap) {
+    [_heapReads removeObjectForKey:@(messageId)];
+    BOOL ok = success && used >= 0 && total >= 0;
+    heap(ok, ok ? used : 0, ok ? total : 0);
+    return;
+  }
   void (^completion)(NSData*) = _screenshots[@(messageId)];
   if (!completion) {
     return;
@@ -576,8 +635,16 @@ void SroClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
   [self.delegate cefBrowser:self didLogConsoleMessage:message level:level];
 }
 
-- (void)handleTerminated:(NSString*)reason {
-  [self.delegate cefBrowser:self rendererDidTerminate:reason];
+- (void)handleTerminatedStatus:(int)status code:(int)code {
+  [self.delegate cefBrowser:self rendererDidTerminateWithStatus:status errorCode:code];
+}
+
+- (void)handleUnresponsive:(BOOL)unresponsive {
+  if (unresponsive) {
+    [self.delegate cefBrowserRendererBecameUnresponsive:self];
+  } else {
+    [self.delegate cefBrowserRendererBecameResponsive:self];
+  }
 }
 
 - (void)handleClosed {
@@ -590,6 +657,10 @@ void SroClient::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
     _screenshots[key](nil);
   }
   [_screenshots removeAllObjects];
+  for (NSNumber* key in _heapReads.allKeys) {
+    _heapReads[key](NO, 0, 0);
+  }
+  [_heapReads removeAllObjects];
   _devToolsRegistration = nullptr;
   [_pending removeAllObjects];
   [self.delegate cefBrowserDidClose:self];

@@ -34,6 +34,7 @@ public final class AppLog: @unchecked Sendable {
     private var entries: [LogEntry] = []
     private let dayFormatter = LogEntry.makeFormatter("yyyyMMdd")
     public var onAdded: ((LogEntry) -> Void)?
+    public var onError: ((Error) -> Void)?
 
     public init(directory: URL, clock: @escaping () -> Date = Date.init) {
         self.directory = directory
@@ -57,6 +58,9 @@ public final class AppLog: @unchecked Sendable {
 
     public func error(_ message: String, _ error: Error? = nil) {
         write("error", error.map { "\(message) (\($0.localizedDescription))" } ?? message)
+        if let error {
+            onError?(error)
+        }
     }
 
     private func write(_ level: String, _ message: String) {

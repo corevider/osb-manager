@@ -281,9 +281,11 @@ OSB Manager can update itself from the [GitHub releases](https://github.com/core
 
 ## Privacy and usage statistics
 
-**OSB Manager sends nothing to the OSB team unless you say yes.** Until you do, it makes no request to `osb.lol` at all: no sign-up, no ping, no statistics. The choice is in **Help → Privacy…**, and a short question in the main window when you first start the app (**Share** or **No thanks**; **What is sent?** opens the details). You can change your mind at any time. The text is in English or Turkish, following the Windows display language.
+**OSB Manager sends nothing to the OSB team unless you say yes.** Until you do, it makes no request to `osb.lol` at all: no sign-up, no ping, no statistics. The choice is in **Help → Privacy…**, and a short question in the main window when you first start the app (**Share** or **No thanks**; **What is sent?** opens the details). You can change your mind at any time. The texts are in English.
 
 **If you share usage statistics** (pseudonymous: linked to a random install ID), about every 10 minutes the app sends one small status report: the app and bot version, Windows, your language and, for each open game window, the bot state (hunting, town trip, dead, login and so on), level, gold, HP and MP percentage, scroll counts, and the current session's kills, deaths, XP, gold and SoX drops. It is linked to a random install ID, not to your game login, password, e-mail or computer. Accounts are told apart by a one-way code, so account names are never sent. **Help → Privacy… → Show what is sent** shows the exact next report.
+
+**Error reports and performance data** come with the same switch, **Share usage statistics, error reports and performance data**, and only when the server asks for them: which part of the app or of OSB failed and how, as fixed codes; crash and freeze events; and memory and processor use. Never log text, names, chat or file paths. Details: [docs/telemetry.md](docs/telemetry.md).
 
 **Character names** are a second, separate choice, **Show my characters in the OSB dashboard**. Without it, no character or server name is sent.
 
@@ -293,7 +295,7 @@ OSB Manager can update itself from the [GitHub releases](https://github.com/core
 
 **Delete or download your data.** Turning the first switch off deletes your data on the server, wipes the local ID and key and removes the reports that were waiting to be sent. **Delete my data** does the same on request, and **Download my data** saves everything the server holds about this install. If the server cannot be reached, the window shows the install ID so you can ask for deletion at privacy@osb.lol. Statistics are kept for at most 90 days; the policy is at <https://osb.lol/privacy>.
 
-**OSB Manager for macOS** follows the same rules, with the same wording (consent text version `2026-11-04.1`), and shows Turkish when the first preferred language is Turkish. The choices are in **OSB Manager → Privacy…** and **OSB Manager → Report a problem…**, and the first-run question is a panel in the main window. The install key is a generic password in the login Keychain (`com.corevider.osb-manager.install-key`) and `privacy.json` and `outbox/` are in `~/Library/Application Support/OSB Manager/`. The details are in [docs/macos/telemetry.md](docs/macos/telemetry.md).
+**OSB Manager for macOS** follows the same rules, with the same switch, the same English wording (consent text version `2026-11-12.1`) and the same error reports and performance data. The choices are in **OSB Manager → Privacy…** and **OSB Manager → Report a problem…**, and the first-run question is a panel in the main window. The install key is a generic password in the login Keychain (`com.corevider.osb-manager.install-key`) and `privacy.json` and `outbox/` are in `~/Library/Application Support/OSB Manager/`. The details are in [docs/macos/telemetry.md](docs/macos/telemetry.md).
 
 **How it stays out of the way.** The code that sends runs in the background, on its own threads, one request at a time, with a 15 second limit. It never runs inside a game window or on the window thread. If the server is slow or down, the app does nothing different. The server can only switch the feature off or slow it down; it cannot make the app send more or run anything. The details are in [docs/telemetry.md](docs/telemetry.md).
 

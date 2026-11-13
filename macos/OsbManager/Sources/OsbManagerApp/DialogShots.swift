@@ -6,25 +6,47 @@ import OsbManagerCore
 enum DialogShots {
     static func capture(controller: TelemetryController, main: MainWindowController, into folder: URL) async {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let code = controller.language.code
         main.show()
         await pause(0.8)
-        save(main.window, folder.appendingPathComponent("banner-\(code).png"))
+        save(main.window, folder.appendingPathComponent("start.png"))
+
+        if controller.settings.state.sharedBefore {
+            controller.answerDecline()
+            await pause(2.0)
+            save(main.window, folder.appendingPathComponent("after-no-thanks.png"))
+        }
+
+        controller.hideConsentPromptForShots()
+        controller.showConsentPromptForShots(sharedBefore: false)
+        await pause(0.6)
+        save(main.window, folder.appendingPathComponent("first-run.png"))
+
+        controller.hideConsentPromptForShots()
+        controller.showConsentPromptForShots(sharedBefore: true)
+        await pause(0.6)
+        save(main.window, folder.appendingPathComponent("first-run-changed.png"))
+        controller.hideConsentPromptForShots()
 
         controller.showPrivacy()
         await pause(0.8)
-        if let window = controller.privacyWindowForShots { save(window, folder.appendingPathComponent("privacy-off-\(code).png")) }
+        if let window = controller.privacyWindowForShots { save(window, folder.appendingPathComponent("privacy-off.png")) }
 
         await controller.service.accept(characters: false)
         await controller.service.setCharacters(true)
         controller.showPrivacy(revealPayload: true)
         await pause(1.0)
-        if let window = controller.privacyWindowForShots { save(window, folder.appendingPathComponent("privacy-on-\(code).png")) }
+        if let window = controller.privacyWindowForShots { save(window, folder.appendingPathComponent("privacy-on.png")) }
 
         controller.showReport()
-        controller.reportWindowForShots?.prefill(description: code == "tr" ? "Otomatik giriş sunucu listesinde duruyor." : "Auto login stops at the server list.")
+        controller.reportWindowForShots?.prefill(description: "Auto login stops at the server list.")
         await pause(0.8)
-        if let window = controller.reportWindowForShots?.window { save(window, folder.appendingPathComponent("report-\(code).png")) }
+        if let window = controller.reportWindowForShots?.window { save(window, folder.appendingPathComponent("report.png")) }
+        controller.reportWindowForShots?.window.close()
+
+        _ = await controller.service.withdraw()
+        controller.showPrivacy()
+        await pause(1.0)
+        if let window = controller.privacyWindowForShots { save(window, folder.appendingPathComponent("privacy-switched-off.png")) }
     }
 
     private static func pause(_ seconds: Double) async {

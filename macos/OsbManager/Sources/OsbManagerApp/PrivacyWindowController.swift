@@ -112,13 +112,11 @@ final class PrivacyWindowController: NSObject, NSWindowDelegate {
         charactersSwitch.target = self
         charactersSwitch.action = #selector(charactersChanged)
 
-        var links: [NSView] = [LinkButton(texts.privacyPolicy, url: texts.privacyPolicyUrl)]
-        if let title = texts.kvkkNotice, let url = texts.kvkkNoticeUrl {
-            links.append(LinkButton(title, url: url))
-        }
-        if let title = texts.explicitConsent, let url = texts.explicitConsentUrl {
-            links.append(LinkButton(title, url: url))
-        }
+        let links: [NSView] = [
+            LinkButton(texts.privacyPolicy, url: texts.privacyPolicyUrl),
+            LinkButton(texts.kvkkNotice, url: texts.kvkkNoticeUrl),
+            LinkButton(texts.explicitConsent, url: texts.explicitConsentUrl),
+        ]
 
         installIdField.isSelectable = true
         installIdField.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
@@ -197,9 +195,11 @@ final class PrivacyWindowController: NSObject, NSWindowDelegate {
         let service = controller.service
         let granted = controller.settings.state.granted
         let empty = granted ? interface.nothingToShow : interface.nothingSentWhileOff
+        let interface = self.interface
         Task { [weak self] in
-            let text = await service.previewNextPayload()
-            self?.payloadView.string = text ?? empty
+            let usage = await service.previewNextPayload()
+            let diagnostics = await Task.detached(priority: .utility) { service.previewNextDiagnostics() }.value
+            self?.payloadView.string = PreviewText.compose(usage: usage, diagnostics: diagnostics, texts: interface) ?? empty
         }
     }
 
@@ -246,7 +246,7 @@ final class PrivacyWindowController: NSObject, NSWindowDelegate {
                 alert.messageText = interface.deletionFailed
                 alert.informativeText = controller.service.failedDeletionInstallId ?? ""
                 alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
+                alert.addButton(withTitle: interface.ok)
                 _ = await alert.beginSheetModal(for: window)
             }
         }
@@ -278,7 +278,7 @@ final class PrivacyWindowController: NSObject, NSWindowDelegate {
                 alert.messageText = interface.exportFailed
                 alert.alertStyle = .warning
             }
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: interface.ok)
             _ = await alert.beginSheetModal(for: window)
         }
     }

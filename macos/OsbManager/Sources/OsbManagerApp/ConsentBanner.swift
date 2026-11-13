@@ -74,7 +74,7 @@ final class CloseButton: NSButton {
 
 @MainActor
 final class ConsentBanner: NSView {
-    init(texts: ConsentTexts, onShare: @escaping () -> Void, onDecline: @escaping () -> Void, onWhatIsSent: @escaping () -> Void) {
+    init(texts: ConsentTexts, sharedBefore: Bool, onShare: @escaping () -> Void, onDecline: @escaping () -> Void, onWhatIsSent: @escaping () -> Void) {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 8
@@ -88,13 +88,12 @@ final class ConsentBanner: NSView {
         body.preferredMaxLayoutWidth = 1100
         body.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        var links: [NSView] = [LinkButton(texts.whatIsSent, handler: onWhatIsSent), LinkButton(texts.privacyPolicy, url: texts.privacyPolicyUrl)]
-        if let title = texts.kvkkNotice, let url = texts.kvkkNoticeUrl {
-            links.append(LinkButton(title, url: url))
-        }
-        if let title = texts.explicitConsent, let url = texts.explicitConsentUrl {
-            links.append(LinkButton(title, url: url))
-        }
+        let links: [NSView] = [
+            LinkButton(texts.whatIsSent, handler: onWhatIsSent),
+            LinkButton(texts.privacyPolicy, url: texts.privacyPolicyUrl),
+            LinkButton(texts.kvkkNotice, url: texts.kvkkNoticeUrl),
+            LinkButton(texts.explicitConsent, url: texts.explicitConsentUrl),
+        ]
 
         let share = ActionButton(texts.share, handler: onShare)
         let decline = ActionButton(texts.noThanks, handler: onDecline)
@@ -106,10 +105,17 @@ final class ConsentBanner: NSView {
             button.widthAnchor.constraint(equalToConstant: width).isActive = true
         }
 
-        let close = CloseButton(label: texts.noThanks, handler: onDecline)
+        let close = CloseButton(label: texts.closeAsNoThanks, handler: onDecline)
         title.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let header = Layout.row([title, close], spacing: 8)
-        let stack = Layout.column([header, body, Layout.row(links, spacing: 16), Layout.row([share, decline], spacing: 10)], spacing: 8)
+        var rows: [NSView] = [header]
+        if sharedBefore {
+            let lead = Layout.label(texts.firstRunChangedLead, wraps: true)
+            lead.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+            rows.append(lead)
+        }
+        rows += [body, Layout.row(links, spacing: 16), Layout.row([share, decline], spacing: 10)]
+        let stack = Layout.column(rows, spacing: 8)
         header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         Layout.pin(stack, in: self, insets: NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
         body.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true

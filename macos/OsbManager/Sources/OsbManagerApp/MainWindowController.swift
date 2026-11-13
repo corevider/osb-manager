@@ -273,6 +273,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
             return script
         } catch {
             services.log.error("Could not install \(file.lastPathComponent)", error)
+            services.note("error", TrailCodes.scriptInstallFailed)
             return nil
         }
     }
@@ -397,6 +398,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
             return script
         } catch {
             services.log.error("Could not install \(address)", error)
+            services.note("error", TrailCodes.scriptInstallFailed)
             return nil
         }
     }
@@ -420,6 +422,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
                         : "Updated \(updated.meta.name) from \(script.meta.version) to \(updated.meta.version).")
                 } catch {
                     services.log.error("Could not update \(script.meta.name)", error)
+                    services.note("error", TrailCodes.scriptUpdateFailed)
                 }
             }
         }
@@ -489,6 +492,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate, NSMenuItemV
         saveSettings()
         manager.applyFrameLimitToAll()
         services.log.info(fps == 0 ? "Frame rate limit off." : "Frame rate limited to \(fps) FPS.")
+        services.note("info", TrailCodes.settingsFpsLimit)
         refreshAll()
     }
 

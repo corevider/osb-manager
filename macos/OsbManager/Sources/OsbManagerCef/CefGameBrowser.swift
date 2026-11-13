@@ -122,6 +122,18 @@ final class CefGameBrowser: NSObject, GameBrowser, SroCefBrowserDelegate {
         }
     }
 
+    func readHeapUsage(_ completion: @escaping @MainActor ((used: Double, total: Double)?) -> Void) {
+        guard let browser else {
+            completion(nil)
+            return
+        }
+        browser.readHeapUsage { ok, used, total in
+            MainActor.assumeIsolated {
+                completion(ok ? (used, total) : nil)
+            }
+        }
+    }
+
     func perform(_ command: GameEditCommand) {
         switch command {
         case .undo: browser?.perform(.undo)
@@ -155,9 +167,21 @@ final class CefGameBrowser: NSObject, GameBrowser, SroCefBrowserDelegate {
         }
     }
 
-    nonisolated func cefBrowser(_ browser: SroCefBrowser, rendererDidTerminate reason: String) {
+    nonisolated func cefBrowser(_ browser: SroCefBrowser, rendererDidTerminateWithStatus status: Int32, errorCode: Int32) {
         MainActor.assumeIsolated {
-            delegate?.gameBrowser(self, rendererDidTerminate: reason)
+            delegate?.gameBrowser(self, rendererDidTerminateWithStatus: status, errorCode: errorCode)
+        }
+    }
+
+    nonisolated func cefBrowserRendererBecameUnresponsive(_ browser: SroCefBrowser) {
+        MainActor.assumeIsolated {
+            delegate?.gameBrowserRendererBecameUnresponsive(self)
+        }
+    }
+
+    nonisolated func cefBrowserRendererBecameResponsive(_ browser: SroCefBrowser) {
+        MainActor.assumeIsolated {
+            delegate?.gameBrowserRendererBecameResponsive(self)
         }
     }
 

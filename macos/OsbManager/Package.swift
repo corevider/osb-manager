@@ -6,7 +6,7 @@ let environment = ProcessInfo.processInfo.environment
 let cefRoot = environment["CEF_ROOT"] ?? "/cef-root-is-not-set"
 let wrapperDirectory = environment["CEF_WRAPPER_DIR"] ?? "\(cefRoot)/wrapper-build"
 let coreOnly = environment["OSB_CORE_ONLY"] == "1"
-let coreTargetNames: Set<String> = ["OsbManagerCore", "OsbManagerCoreTests"]
+let coreTargetNames: Set<String> = ["CrashSignals", "OsbManagerCore", "OsbManagerCoreTests"]
 
 let cefCompileFlags = [
     "-I", cefRoot,
@@ -28,7 +28,12 @@ let allTargets: [Target] = [
         ]
     ),
     .target(
+        name: "CrashSignals",
+        publicHeadersPath: "include"
+    ),
+    .target(
         name: "OsbManagerCore",
+        dependencies: ["CrashSignals"],
         swiftSettings: [.swiftLanguageMode(.v5)]
     ),
     .target(
@@ -58,7 +63,8 @@ let allTargets: [Target] = [
     ),
     .testTarget(
         name: "OsbManagerCoreTests",
-        dependencies: ["OsbManagerCore"],
+        dependencies: ["OsbManagerCore", "CrashSignals"],
+        exclude: ["Fixtures"],
         swiftSettings: [.swiftLanguageMode(.v5)]
     ),
     .testTarget(

@@ -1,8 +1,8 @@
 import Foundation
 
 public enum TelemetryLimits {
-    public static let consentVersion = 1
-    public static let consentTextVersion = "2026-11-04.1"
+    public static let consentVersion = 2
+    public static let consentTextVersion = "2026-11-12.1"
     public static let appName = "manager-mac"
     public static let osName = "macos"
     public static let releaseBaseUrl = "https://api.osb.lol/v1"

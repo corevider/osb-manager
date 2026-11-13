@@ -10,6 +10,9 @@ public enum OsbManagerApplication {
     private static var terminationSignal: DispatchSourceSignal?
 
     public static func run(arguments: [String], driver: ((AppDelegate) async -> Void)? = nil) -> Never {
+        if arguments == [FrameCheck.option] {
+            FrameCheck.run()
+        }
         guard CefRuntime.loadFramework() else {
             stop("The CEF framework could not be loaded from the app bundle.", code: 1)
         }
@@ -29,9 +32,15 @@ public enum OsbManagerApplication {
         if let previous = options.updatedFrom {
             UpdateRelaunch.announceAndWait(paths: paths, previousProcess: previous)
         }
+        var credentials: CredentialStore?
+        #if DEBUG
+        if options.inMemoryCredentials {
+            credentials = InMemoryCredentialStore()
+        }
+        #endif
         let services: AppServices
         do {
-            services = try AppServices.create(paths: paths, resources: Bundle.main.resourceURL)
+            services = try AppServices.create(paths: paths, resources: Bundle.main.resourceURL, credentials: credentials)
         } catch let error as AppStartupError where error.holderPid != nil {
             bringRunningInstanceToFront(pid: error.holderPid ?? 0)
         } catch {

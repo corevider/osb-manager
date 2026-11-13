@@ -42,6 +42,8 @@ public struct PrivacyState: Equatable, Sendable {
     public var granted: Bool { status == .granted }
 
     public var needsAnswer: Bool { status == .undecided || status == .outdated }
+
+    public var sharedBefore: Bool { status == .outdated }
 }
 
 public struct WithdrawResult: Sendable {

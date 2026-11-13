@@ -58,7 +58,9 @@ public protocol GameBrowserDelegate: AnyObject {
     func gameBrowser(_ browser: GameBrowser, didReceivePageMessage json: String, from origin: PageOrigin)
     func gameBrowserDidFinishLoading(_ browser: GameBrowser)
     func gameBrowser(_ browser: GameBrowser, didFailLoading description: String)
-    func gameBrowser(_ browser: GameBrowser, rendererDidTerminate reason: String)
+    func gameBrowser(_ browser: GameBrowser, rendererDidTerminateWithStatus status: Int32, errorCode: Int32)
+    func gameBrowserRendererBecameUnresponsive(_ browser: GameBrowser)
+    func gameBrowserRendererBecameResponsive(_ browser: GameBrowser)
     func gameBrowser(_ browser: GameBrowser, wantsToOpen url: URL)
     func gameBrowser(_ browser: GameBrowser, didLog message: String, level: Int)
     func gameBrowser(_ browser: GameBrowser, didReportScriptError description: String)
@@ -66,6 +68,8 @@ public protocol GameBrowserDelegate: AnyObject {
 }
 
 public extension GameBrowserDelegate {
+    func gameBrowserRendererBecameUnresponsive(_ browser: GameBrowser) {}
+    func gameBrowserRendererBecameResponsive(_ browser: GameBrowser) {}
     func gameBrowser(_ browser: GameBrowser, didLog message: String, level: Int) {}
     func gameBrowser(_ browser: GameBrowser, didReportScriptError description: String) {}
 }
@@ -86,6 +90,7 @@ public protocol GameBrowser: AnyObject {
     func updateScripts(_ scripts: [String])
     func evaluate(_ code: String) async throws -> String
     func captureScreenshot() async throws -> Data
+    func readHeapUsage(_ completion: @escaping @MainActor ((used: Double, total: Double)?) -> Void)
     func perform(_ command: GameEditCommand)
     func close()
 }
