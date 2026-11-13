@@ -2,6 +2,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+#define SRO_CEF_EXPORT __attribute__((visibility("default")))
+
 @protocol SroCefPackProvider <NSObject>
 
 - (BOOL)wantsMethod:(NSString *)method url:(NSString *)url rangeHeader:(nullable NSString *)rangeHeader;
@@ -12,12 +14,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+SRO_CEF_EXPORT
 @interface SroCefApplication : NSApplication
 
 @property(nonatomic, copy, nullable) void (^terminationHandler)(void);
 
 @end
 
+SRO_CEF_EXPORT
 @interface SroCefRuntime : NSObject
 
 + (BOOL)loadFramework;
@@ -54,6 +58,7 @@ typedef NS_ENUM(NSInteger, SroCefEditCommand) {
 
 @end
 
+SRO_CEF_EXPORT
 @interface SroCefBrowser : NSObject
 
 @property(nonatomic, weak, nullable) id<SroCefBrowserDelegate> delegate;
