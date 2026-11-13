@@ -10,7 +10,7 @@ OSB Manager lives at `github.com/corevider/osb-manager`. This page is for the ma
 | `claude-review.yml` | a PR by an `OWNER`, `MEMBER` or `COLLABORATOR`; any other PR after a maintainer adds the label `ok-to-review`; or by hand | a plain step saves the PR's text and diff; the agent reads them and main, leaves inline comments and returns a summary that ends with `VERDICT: MERGE` or `VERDICT: HOLD` | `pull_request_target` with main checked out, never the PR's code; the agent has no shell, network or write access and cannot approve or merge; the token guard checks what it posted |
 | `claude-fix.yml` | an issue by an `OWNER`, `MEMBER` or `COLLABORATOR`; any other issue after a maintainer adds the label `ok-to-fix`; or by hand | the agent edits the code for the issue; a separate job builds and tests the patch on Windows; a third job opens a PR | the agent has no shell, network or token; its code runs only in a job without secrets; protected files are refused; the PR still needs a maintainer's approval |
 | `merge-approved.yml` | a maintainer approves a PR from a branch of this repository, or by hand with a PR number | merges when the approval covers the current head commit, the `windows` and `macos` checks passed and Claude did not say `HOLD`; never touches PRs that change protected files | runs no PR code; only reads a human approval |
-| `release.yml` | a maintainer pushes a tag `v<version>` that equals `<Version>` in `src/OsbManager/OsbManager.csproj` | builds and tests the tag, runs `scripts/package-windows.ps1` and attaches the zip and its `.sha256` to a draft release | runs the tagged commit only; signs nothing; the draft is published by hand |
+| `release.yml` | a maintainer pushes a tag `v<version>` that equals `<Version>` in `src/OsbManager/OsbManager.csproj`; or by hand | builds and tests the tag, runs `scripts/package-windows.ps1` and keeps the zip only as a workflow artifact | `contents: read` only; never creates, edits or uploads to a release or a tag; signs nothing |
 
 Each workflow file starts with a comment that says why it is safe. Keep that comment true when you change the file.
 
@@ -40,10 +40,12 @@ The macOS job runs only the `OsbManagerCore` tests: `OSB_CORE_ONLY=1` makes `Pac
 
 Releases are made by hand, because the macOS package is signed and notarised on the operator's Mac and the update manifests are signed with the release key on the operator's PC.
 
+Before you tag a release that touches the Windows install path, the publish flags or the .NET version, run the self-update check in [windows-self-update.md](windows-self-update.md#the-end-to-end-check).
+
 1. Bump `<Version>` in `src/OsbManager/OsbManager.csproj` and `macos/OsbManager/VERSION` in a PR and merge it. Both must be the same `major.minor.patch`: the apps offer an update only when the signed version is newer than their own.
-2. Tag the merge commit `v<version>` and push the tag. `release.yml` builds the Windows zip and attaches it with its SHA-256 to a draft release.
+2. Build the Windows zip on the PC that holds the release key: `scripts\package-windows.ps1 -OutputDirectory C:\osb-release\1.2.3`. Do not use a zip built by `release.yml`: two builds of the same commit are not byte-identical, and the apps accept only the zip whose SHA-256 you sign.
 3. Build, sign and notarise the macOS zip on the Mac ([docs/macos/RELEASE.md](macos/RELEASE.md)).
-4. Put both zips and their `.sha256` files in one folder on the PC that holds the release key, for example `C:\osb-release\1.2.3\`. Download the Windows zip from the draft (or build it with `scripts/package-windows.ps1`) and copy the macOS zip from the Mac.
+4. Copy the macOS zip and its `.sha256` file from the Mac into the same folder, so that it holds both zips and both `.sha256` files.
 5. Sign the update manifests (Windows PowerShell or PowerShell 7):
 
    ```powershell
@@ -51,19 +53,19 @@ Releases are made by hand, because the macOS package is signed and notarised on 
    ```
 
    The script checks each zip against its `.sha256` file, writes `OSB-Manager-<platform>.update.json` and `OSB-Manager-<platform>.update.json.sig` next to it, checks each signature and warns if the key is not one of the keys built into the app. It never prints the key.
-6. Upload to the draft release, so that it has these ten files:
+6. Tag the release commit `v<version>`, push the tag, and create the release as a draft with these eight files:
    - `OSB-Manager-windows-x64.zip`, `.zip.sha256`, `.update.json`, `.update.json.sig`;
    - `OSB-Manager-macos-arm64.zip`, `.zip.sha256`, `.update.json`, `.update.json.sig`.
 
    ```powershell
-   gh release upload v1.2.3 C:\osb-release\1.2.3\OSB-Manager-* --repo corevider/osb-manager
+   gh release create v1.2.3 --draft --verify-tag --title "OSB Manager 1.2.3" --notes-file C:\osb-release\1.2.3\notes.md C:\osb-release\1.2.3\OSB-Manager-* --repo corevider/osb-manager
    ```
 
-7. Write the notes. The release **title** is what the apps show in the update notice, so make it short ("OSB Manager 1.2.3"). Publish the release.
+7. Check that the draft's files match the signed ones (sizes and SHA-256). The release **title** is what the apps show in the update notice, so keep it short ("OSB Manager 1.2.3"). Publish the release.
 
 A release without the two `.update.json` files and their signatures is still a normal download; the apps just do not offer it as an update.
 
-Without `release.yml` (or when it fails), run `scripts/package-windows.ps1` on Windows and use `dist/OSB-Manager-windows-x64.zip` and its `.sha256`.
+`release.yml` still runs on the tag. It only shows that the tagged commit builds and passes its tests on a clean runner; its zip is never a release file.
 
 ## The release key (the operator, once)
 

@@ -1410,7 +1410,7 @@ internal sealed class MainForm : Form
             if (result.Offer is { } offer && updateNotice.Offer(offer, requestedByUser))
             {
                 ShowUpdateNotice(offer);
-#if DEBUG
+#if DEBUG || UPDATE_E2E
                 if (UpdateTestSwitches.InstallWhenOffered)
                 {
                     InstallUpdate();
@@ -1486,6 +1486,7 @@ internal sealed class MainForm : Form
         updateButtons.Enabled = false;
         var folder = Path.Combine(services.Paths.Updates, Guid.NewGuid().ToString("N"));
         var swapped = false;
+        var step = UpdateStep.Download;
         try
         {
             updateText.Text = $"Downloading OSB Manager {offer.Version}...";
@@ -1493,11 +1494,18 @@ internal sealed class MainForm : Form
             Note("info", TrailCodes.UpdateDownload);
             var zip = await checker.DownloadAsync(offer, folder, CancellationToken.None);
             services.Log.Info($"The download matches the signed manifest of {offer.Version}.");
+            step = UpdateStep.Stage;
             await Task.Run(() => swap.Stage(zip));
+            step = UpdateStep.CloseWindows;
             updateText.Text = "Closing the game windows...";
             await CloseAllAndWaitAsync(TimeSpan.FromSeconds(20));
+            step = UpdateStep.Prepare;
+            var preload = await Task.Run(() => AssemblyPreload.LoadReferenceClosure([typeof(MainForm).Assembly]));
+            services.Log.Info($"Loaded {preload.Loaded.Count} assemblies for the restart before replacing the exe ({preload.Missing.Count} not in the app).");
+            step = UpdateStep.Swap;
             swap.Swap();
             swapped = true;
+            step = UpdateStep.Start;
             updateText.Text = $"Starting OSB Manager {offer.Version}...";
             var arguments = UpdateRelaunch.ArgumentsForRestart(Environment.GetCommandLineArgs().Skip(1));
             if (!await UpdateRelaunch.StartAsync(swap.ExePath, arguments, UpdateRelaunch.StartTimeout))
@@ -1516,11 +1524,11 @@ internal sealed class MainForm : Form
             {
                 TryRollBack(swap);
             }
-            services.Log.Error("The update failed", e);
+            services.Log.Error(UpdateFailure.ForLog(offer.Version, step), e);
             Note("error", TrailCodes.UpdateFailed);
             updateNotice.InstallFailed();
             ShowUpdateNotice(offer);
-            OfferReleasePage($"The update to {offer.Version} failed: {e.Message}");
+            OfferReleasePage(UpdateFailure.ForUser(offer.Version, step, e));
         }
         finally
         {

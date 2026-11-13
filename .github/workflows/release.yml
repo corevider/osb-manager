@@ -1,24 +1,28 @@
-name: Release (Windows)
+name: Release check (Windows)
 
-# Builds the Windows package for a version tag and attaches it to a draft GitHub release. Releases are otherwise made
-# by hand: the macOS package is signed and notarised on the operator's Mac (docs/macos/RELEASE.md), and the operator
-# adds it to the draft and publishes the release. This workflow never signs anything and holds no signing material.
+# Builds, tests and packages the Windows app for a version tag, and keeps the zip only as a workflow artifact.
+# It never creates, edits, uploads to or deletes a GitHub release or a tag, and its token can only read.
 #
-# Starts when a maintainer pushes a tag v<major>.<minor>.<patch> whose version equals <Version> in
-# src/OsbManager/OsbManager.csproj. It builds and tests the tagged commit, runs scripts/package-windows.ps1, and creates
-# (or updates) the draft release with OSB-Manager-windows-x64.zip and its .sha256 file.
+# Why: every release carries update manifests that the maintainer signs on their own computer. Each manifest holds the
+# SHA-256 of the exact zip that was signed, and the apps refuse any other zip. A zip built here is never byte-identical
+# to the signed one, so uploading it to a release would make every update of that release fail. Releases are made
+# by hand, from the signed files, as docs/MAINTAINING.md describes. This workflow only shows that the tagged commit
+# builds and passes its tests on a clean runner.
 #
-# Why this is safe: only people with write access can push tags (protect `v*` tags with a ruleset), the job runs the
-# tagged commit of this repository and no pull request code, it uses no secret besides GITHUB_TOKEN, and it creates a
-# draft that a maintainer checks and publishes by hand.
+# Starts when a maintainer pushes a tag v<major>.<minor>.<patch> (the version must equal <Version> in
+# src/OsbManager/OsbManager.csproj), or by hand from the Actions tab for any branch or tag.
+#
+# Why this is safe: it runs only code that a maintainer tagged or chose, uses no secret, has `contents: read` and
+# nothing else, and does not keep the token in the checkout.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-check-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -26,11 +30,12 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
-      TAG: ${{ github.ref_name }}
+      REF_NAME: ${{ github.ref_name }}
+      REF_TYPE: ${{ github.ref_type }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,10 +46,11 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Check the version
+        if: env.REF_TYPE == 'tag'
         shell: bash
         run: |
           version=$(sed -n 's#.*<Version>\(.*\)</Version>.*#\1#p' src/OsbManager/OsbManager.csproj | head -n 1)
-          [ "v$version" = "$TAG" ] || { echo "Tag $TAG does not match <Version>$version</Version>."; exit 1; }
+          [ "v$version" = "$REF_NAME" ] || { echo "Tag $REF_NAME does not match <Version>$version</Version>."; exit 1; }
 
       - name: Build and test
         run: |
@@ -56,19 +62,19 @@ jobs:
       - name: Package
         run: ./scripts/package-windows.ps1 -OutputDirectory "$env:RUNNER_TEMP/dist"
 
-      - name: Create or update the draft release
+      - name: Show the checksum
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          dist="$RUNNER_TEMP/dist"
-          ( cd "$dist" && sha256sum -c OSB-Manager-windows-x64.zip.sha256 )
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$dist/OSB-Manager-windows-x64.zip" "$dist/OSB-Manager-windows-x64.zip.sha256" --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$TAG" "$dist/OSB-Manager-windows-x64.zip" "$dist/OSB-Manager-windows-x64.zip.sha256" --repo "$GITHUB_REPOSITORY" \
-              --draft --verify-tag --title "OSB Manager ${TAG#v}" \
-              --notes "Windows package built by release.yml from $TAG. Add the signed and notarised macOS package (docs/macos/RELEASE.md), write the notes, then publish."
-          fi
-          cat "$dist/OSB-Manager-windows-x64.zip.sha256"
+          cd "$RUNNER_TEMP/dist"
+          sha256sum -c OSB-Manager-windows-x64.zip.sha256
+          cat OSB-Manager-windows-x64.zip.sha256
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: OSB-Manager-windows-x64-unsigned-check
+          path: |
+            ${{ runner.temp }}/dist/OSB-Manager-windows-x64.zip
+            ${{ runner.temp }}/dist/OSB-Manager-windows-x64.zip.sha256
+          retention-days: 7
+          if-no-files-found: error

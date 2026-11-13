@@ -159,7 +159,7 @@ internal sealed class AppServices : IDisposable
     private static UpdateService CreateUpdates(AppSettings settings, AppLog log)
     {
         var options = new UpdateServiceOptions(AppVersion, UpdatePlatform.WindowsX64, UpdateKeys.Release, UserAgent, UpdateHttp.CreateHandler(), TimeProvider.System);
-#if DEBUG
+#if DEBUG || UPDATE_E2E
         if (UpdateTestSwitches.Feed is { } feed)
         {
             options = options with

@@ -39,17 +39,24 @@ public class UpdateScriptTests
         return new ScriptRun(process.ExitCode, output.Result, error.Result);
     }
 
+    private static int PersistedKeyCount()
+    {
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Crypto", "Keys");
+        return Directory.Exists(folder) ? Directory.GetFiles(folder).Length : 0;
+    }
+
     [Fact]
     public void TheScriptsMakeAKeyAndManifestsTheAppAccepts()
     {
         using var temp = new TempDirectory();
         var keyPath = Path.Combine(temp.Path, "key", "release.pem");
+        var persistedKeys = PersistedKeyCount();
         var key = Run("new-update-key.ps1", "-KeyPath", keyPath);
         Assert.True(key.ExitCode == 0, key.Report);
         var keyOutput = key.Output;
         var publicKey = keyOutput.Split('\n').Select(l => l.Trim()).Last(l => l.Length > 0);
         UpdateSignature.ParseKey(publicKey);
-        Assert.False(System.Security.Cryptography.CngKey.Exists(""));
+        Assert.Equal(persistedKeys, PersistedKeyCount());
         Assert.DoesNotContain("PRIVATE", keyOutput);
         var keyText = File.ReadAllText(keyPath);
         Assert.StartsWith("-----BEGIN " + "PRIVATE KEY-----", keyText);
@@ -72,6 +79,7 @@ public class UpdateScriptTests
         var sign = Run("sign-update.ps1", "-KeyPath", keyPath, "-Zip", windowsZip + "," + macZip, "-Version", "1.2.3", "-OutputDirectory", output);
         Assert.True(sign.ExitCode == 0, sign.Report);
         Assert.DoesNotContain(keyText.Split('\n')[1].Trim(), sign.Report);
+        Assert.Equal(persistedKeys, PersistedKeyCount());
 
         var verifier = new UpdateSignature([publicKey]);
         foreach (var platform in new[] { UpdatePlatform.WindowsX64, UpdatePlatform.MacosArm64 })

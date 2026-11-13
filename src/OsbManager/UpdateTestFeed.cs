@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || UPDATE_E2E
 using System.Net;
 using System.Net.Http.Headers;
 using OsbManager.Core.Updates;

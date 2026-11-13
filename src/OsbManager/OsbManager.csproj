@@ -10,13 +10,17 @@
     <AssemblyTitle>OSB Manager</AssemblyTitle>
     <Product>OSB Manager</Product>
     <Company>Corevider</Company>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationVisualStyles>true</ApplicationVisualStyles>
     <ApplicationDefaultFont>Segoe UI, 9pt</ApplicationDefaultFont>
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(OsbUpdateE2E)' == 'true'">
+    <DefineConstants>$(DefineConstants);UPDATE_E2E</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
