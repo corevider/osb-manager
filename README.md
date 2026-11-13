@@ -317,7 +317,7 @@ It installs `~/Applications/OSB Manager.app` and a link named "OSB Manager" on t
 
 ## Contributing and security
 
-Pull requests and issues are welcome. CI builds and tests every pull request; a Claude review and an automatic fix attempt run for maintainers' items and, after a maintainer adds a label, for everyone else's. Nothing is merged without a maintainer's approval. Report security problems privately as [SECURITY.md](SECURITY.md) describes. Maintainers: see [docs/MAINTAINING.md](docs/MAINTAINING.md).
+Pull requests and issues are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first (AI coding agents: [AGENTS.md](AGENTS.md)). CI builds and tests every pull request; a Claude review and an automatic fix attempt run for maintainers' items and, after a maintainer adds a label, for everyone else's. Nothing is merged without a maintainer's approval. Report security problems privately as [SECURITY.md](SECURITY.md) describes. Maintainers: see [docs/MAINTAINING.md](docs/MAINTAINING.md).
 
 ## Credits
 
